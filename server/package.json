@@ -1,0 +1,27 @@
+{
+  "name": "roommatepunishment-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "seed": "tsx src/db/seed.ts",
+    "db:bootstrap-neon": "node scripts/bootstrap-neon.mjs",
+    "simulate:whatsapp": "tsx scripts/simulate-whatsapp-flow.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "openai": "^6.32.0",
+    "pg": "^8.20.0",
+    "twilio": "^5.4.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,12 @@
+server/node_modules/
+server/dist/
+server/data/
+server/tmp/
+server/.env
+server/.env.*
+!server/.env.example
+app-mobile/node_modules/
+app-mobile/.expo/
+app-mobile/.env
+app-mobile/.env.*
+!app-mobile/.env.example

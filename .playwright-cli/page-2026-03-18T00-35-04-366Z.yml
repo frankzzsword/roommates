@@ -1,0 +1,327 @@
+- generic [ref=e8]:
+  - generic [ref=e9]:
+    - generic [ref=e16]:
+      - generic [ref=e18]:
+        - generic [ref=e19]: Shared House
+        - generic [ref=e20]: Shared Apartment
+        - generic [ref=e21]: Everyone sees what is coming next, who is behind, and what the house rules will do about it.
+      - generic [ref=e26]:
+        - generic [ref=e27]: Live household data
+        - generic [ref=e28]: Synced 18 Mar, 00:38
+      - generic [ref=e29]:
+        - generic [ref=e30]:
+          - generic [ref=e31]: View as roommate
+          - generic [ref=e32]: Use the same app shell for every person in the flat.
+        - generic [ref=e36]:
+          - generic [ref=e37] [cursor=pointer]:
+            - generic [ref=e39]: A
+            - generic [ref=e40]:
+              - generic [ref=e41]: Alex
+              - generic [ref=e42]: 1 open
+          - generic [ref=e43] [cursor=pointer]:
+            - generic [ref=e45]: J
+            - generic [ref=e46]:
+              - generic [ref=e47]: Jamie
+              - generic [ref=e48]: 1 open
+          - generic [ref=e49] [cursor=pointer]:
+            - generic [ref=e51]: S
+            - generic [ref=e52]:
+              - generic [ref=e53]: Sam
+              - generic [ref=e54]: 1 open
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]: Personal overview
+            - generic [ref=e60]: Alex
+            - generic [ref=e61]: Prefers early evening reminders.
+          - generic [ref=e62]:
+            - generic [ref=e63]: 35%
+            - generic [ref=e64]: Reliability
+        - generic [ref=e65]:
+          - generic [ref=e66]: 1 open chore
+          - generic [ref=e67]: 0 active penalties
+      - generic [ref=e68]:
+        - generic [ref=e69]:
+          - generic [ref=e70]: 0%
+          - generic [ref=e71]: Completion
+        - generic [ref=e72]:
+          - generic [ref=e73]: "1"
+          - generic [ref=e74]: Overdue
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]: "3"
+          - generic [ref=e78]: Upcoming
+        - generic [ref=e79]:
+          - generic [ref=e80]: €0.00
+          - generic [ref=e81]: Penalty pot
+      - generic [ref=e82]:
+        - generic [ref=e83]:
+          - generic [ref=e84]: Upcoming for Alex
+          - generic [ref=e85]: Personal task view with cadence, points, and reminder status.
+        - generic [ref=e87]:
+          - generic [ref=e88]:
+            - generic [ref=e89]: Take out trash
+            - generic [ref=e90]: Shared space • weekly • 10 pts
+          - generic [ref=e92]: due 17 Mar, 19:00
+      - generic [ref=e93]:
+        - generic [ref=e94]:
+          - generic [ref=e95]: Reminder rhythm
+          - generic [ref=e96]: Personal nudges stay private, while the house still gets a weekly summary.
+        - generic [ref=e97]:
+          - generic [ref=e98]:
+            - generic [ref=e100]: No day-before ping
+            - generic [ref=e102]: Escalates after 2h
+          - generic [ref=e103]: "Quiet hours: 22:00 to 07:30"
+      - generic [ref=e104]:
+        - generic [ref=e105]:
+          - generic [ref=e106]: House feed
+          - generic [ref=e107]: Recent completions, misses, and reminder sends.
+        - generic [ref=e108]:
+          - generic [ref=e111]:
+            - generic [ref=e112]: System test reminder sent
+            - generic [ref=e113]: WhatsApp bot • 18 Mar, 00:33
+          - generic [ref=e116]:
+            - generic [ref=e117]: Alex test reminder sent
+            - generic [ref=e118]: WhatsApp bot • 18 Mar, 00:19
+          - generic [ref=e121]:
+            - generic [ref=e122]: Alex test reminder sent
+            - generic [ref=e123]: WhatsApp bot • 18 Mar, 00:17
+          - button [ref=e169] [cursor=pointer]:
+            - generic [ref=e126]: Refresh live state
+    - generic [ref=e176]:
+      - generic [ref=e178]:
+        - generic [ref=e179]: Upcoming
+        - generic [ref=e180]: Tasks and cadence
+        - generic [ref=e181]: Give roommates a clean view of what is theirs, what is late, and what has already been cleared.
+      - generic [ref=e182]:
+        - generic [ref=e183]:
+          - generic [ref=e184]: Choose roommate
+          - generic [ref=e185]: Preview each person’s task feed.
+        - generic [ref=e189]:
+          - generic [ref=e190] [cursor=pointer]:
+            - generic [ref=e192]: A
+            - generic [ref=e193]:
+              - generic [ref=e194]: Alex
+              - generic [ref=e195]: 1 open
+          - generic [ref=e196] [cursor=pointer]:
+            - generic [ref=e198]: J
+            - generic [ref=e199]:
+              - generic [ref=e200]: Jamie
+              - generic [ref=e201]: 1 open
+          - generic [ref=e202] [cursor=pointer]:
+            - generic [ref=e204]: S
+            - generic [ref=e205]:
+              - generic [ref=e206]: Sam
+              - generic [ref=e207]: 1 open
+      - generic [ref=e208]:
+        - generic [ref=e209]:
+          - generic [ref=e210]: Assigned to Alex
+          - generic [ref=e211]: What this roommate sees first.
+        - generic [ref=e213]:
+          - generic [ref=e214]:
+            - generic [ref=e215]: Take out trash
+            - generic [ref=e216]: Alex • Shared space • 10 pts
+            - generic [ref=e217]: weekly • due 17 Mar, 19:00
+          - generic [ref=e219]: overdue
+      - generic [ref=e220]:
+        - generic [ref=e221]:
+          - generic [ref=e222]: Needs attention now
+          - generic [ref=e223]: Late tasks that should trigger escalation.
+        - generic [ref=e225]:
+          - generic [ref=e226]:
+            - generic [ref=e227]: Take out trash
+            - generic [ref=e228]: Alex • Shared space • 10 pts
+            - generic [ref=e229]: weekly • due 17 Mar, 19:00
+          - generic [ref=e231]: overdue
+      - generic [ref=e233]:
+        - generic [ref=e234]: Recently cleared
+        - generic [ref=e235]: Done or skipped items stay visible for accountability.
+    - generic [ref=e242]:
+      - generic [ref=e244]:
+        - generic [ref=e245]: Admin
+        - generic [ref=e246]: Configure the house
+        - generic [ref=e247]: Set the recurring task system once, then let the bot and app carry the accountability.
+      - generic [ref=e248]:
+        - generic [ref=e249]:
+          - generic [ref=e250]: Acting on behalf of
+          - generic [ref=e251]: Admin controls can target any roommate.
+        - generic [ref=e255]:
+          - generic [ref=e256] [cursor=pointer]:
+            - generic [ref=e258]: A
+            - generic [ref=e259]:
+              - generic [ref=e260]: Alex
+              - generic [ref=e261]: 1 open
+          - generic [ref=e262] [cursor=pointer]:
+            - generic [ref=e264]: J
+            - generic [ref=e265]:
+              - generic [ref=e266]: Jamie
+              - generic [ref=e267]: 1 open
+          - generic [ref=e268] [cursor=pointer]:
+            - generic [ref=e270]: S
+            - generic [ref=e271]:
+              - generic [ref=e272]: Sam
+              - generic [ref=e273]: 1 open
+      - generic [ref=e274]:
+        - generic [ref=e275]:
+          - generic [ref=e276]: Recurring task library
+          - generic [ref=e277]: "Manage the full house rota here: everyday chores, weekly resets, and optional monthly deep-clean subtasks."
+        - generic [ref=e278]:
+          - generic [ref=e279]:
+            - generic [ref=e280]:
+              - generic [ref=e281]: All task templates
+              - generic [ref=e282]: 3 recurring templates configured
+            - button "New task" [ref=e283] [cursor=pointer]:
+              - generic [ref=e285]: New task
+          - generic [ref=e286]:
+            - generic [ref=e287]:
+              - generic [ref=e289]: Bathroom wipe-down
+              - generic [ref=e290]: Jamie • Shared space • Every week
+            - generic [ref=e292] [cursor=pointer]: Edit
+          - generic [ref=e293]:
+            - generic [ref=e294]:
+              - generic [ref=e296]: Clean kitchen
+              - generic [ref=e297]: Sam • Shared space • Every week
+            - generic [ref=e299] [cursor=pointer]: Edit
+          - generic [ref=e300]:
+            - generic [ref=e301]:
+              - generic [ref=e303]: Take out trash
+              - generic [ref=e304]: Alex • Shared space • Every week
+            - generic [ref=e306] [cursor=pointer]: Edit
+      - generic [ref=e307]:
+        - generic [ref=e308]:
+          - generic [ref=e309]: Create task template
+          - generic [ref=e310]: Use parent tasks for the base routine and optional subtasks for less frequent deep-clean work.
+        - generic [ref=e311]:
+          - generic [ref=e312]:
+            - generic [ref=e313]: Task title
+            - textbox [ref=e314]
+          - generic [ref=e315]:
+            - generic [ref=e316]: Description
+            - textbox [ref=e317]
+          - generic [ref=e318]:
+            - generic [ref=e320]:
+              - generic [ref=e321]: Area
+              - textbox [ref=e322]: Bathroom
+            - generic [ref=e324]:
+              - generic [ref=e325]: Every
+              - textbox [ref=e326]: "1"
+          - generic [ref=e327]:
+            - generic [ref=e328]: Frequency unit
+            - generic [ref=e329]:
+              - generic [ref=e331] [cursor=pointer]: Days
+              - generic [ref=e333] [cursor=pointer]: Weeks
+              - generic [ref=e335] [cursor=pointer]: Months
+          - generic [ref=e336]:
+            - generic [ref=e337]: Assigned roommate
+            - generic [ref=e340]:
+              - generic [ref=e341] [cursor=pointer]:
+                - generic [ref=e343]: A
+                - generic [ref=e344]:
+                  - generic [ref=e345]: Alex
+                  - generic [ref=e346]: 1 open
+              - generic [ref=e347] [cursor=pointer]:
+                - generic [ref=e349]: J
+                - generic [ref=e350]:
+                  - generic [ref=e351]: Jamie
+                  - generic [ref=e352]: 1 open
+              - generic [ref=e353] [cursor=pointer]:
+                - generic [ref=e355]: S
+                - generic [ref=e356]:
+                  - generic [ref=e357]: Sam
+                  - generic [ref=e358]: 1 open
+          - generic [ref=e359]:
+            - generic [ref=e360]: Parent task
+            - generic [ref=e361]:
+              - generic [ref=e363] [cursor=pointer]: Standalone task
+              - generic [ref=e365] [cursor=pointer]: Bathroom wipe-down
+              - generic [ref=e367] [cursor=pointer]: Clean kitchen
+              - generic [ref=e369] [cursor=pointer]: Take out trash
+          - generic [ref=e371] [cursor=pointer]:
+            - generic [ref=e372]: Optional subtask
+            - generic [ref=e373]: Keep this on for monthly or occasional deep-clean extras that should not appear every single base run.
+          - generic [ref=e377] [cursor=pointer]:
+            - generic [ref=e378]: Template active
+            - generic [ref=e379]: Pause a task template without deleting it.
+          - generic [ref=e383] [cursor=pointer]:
+            - generic [ref=e384]: Reminder enabled
+            - generic [ref=e385]: Allow direct reminder messages for this task template.
+          - generic [ref=e388]: "Preview cadence: Every week • assigned to Alex"
+          - generic [ref=e389]:
+            - button "Create template" [disabled]:
+              - generic [ref=e391]: Create template
+            - button "Reset form" [ref=e392] [cursor=pointer]:
+              - generic [ref=e394]: Reset form
+      - generic [ref=e395]:
+        - generic [ref=e396]:
+          - generic [ref=e397]: Penalty rule
+          - generic [ref=e398]: Tune the house consequence system.
+        - generic [ref=e399]:
+          - generic [ref=e400]:
+            - generic [ref=e402]:
+              - generic [ref=e403]: Amount
+              - textbox [ref=e404]: "7"
+            - generic [ref=e406]:
+              - generic [ref=e407]: Grace hours
+              - textbox [ref=e408]: "2"
+          - generic [ref=e410] [cursor=pointer]:
+            - generic [ref=e411]: Penalty automation
+            - generic [ref=e412]: Apply penalties automatically when chores stay overdue.
+      - generic [ref=e415]:
+        - generic [ref=e416]:
+          - generic [ref=e417]: Reminder controls for Alex
+          - generic [ref=e418]: Useful when one roommate needs stronger nudges than the others.
+        - generic [ref=e419]:
+          - generic [ref=e420]:
+            - button "Send test reminder" [ref=e421] [cursor=pointer]:
+              - generic [ref=e423]: Send test reminder
+            - button "Open penalty" [ref=e424] [cursor=pointer]:
+              - generic [ref=e426]: Open penalty
+          - generic [ref=e427]:
+            - generic [ref=e428]: Penalty reason
+            - textbox [ref=e429]: Missed assigned chore
+      - generic [ref=e430]:
+        - generic [ref=e431]:
+          - generic [ref=e432]: Roster
+          - generic [ref=e433]: Everyone who receives reminders or penalties.
+        - generic [ref=e434]:
+          - generic [ref=e435]:
+            - generic [ref=e436]:
+              - generic [ref=e437]: Alex
+              - generic [ref=e438]: whatsapp:+4917613420040 • 1 open
+            - generic [ref=e440] [cursor=pointer]: Manage
+          - generic [ref=e441]:
+            - generic [ref=e442]:
+              - generic [ref=e443]: Jamie
+              - generic [ref=e444]: whatsapp:+491703333333 • 1 open
+            - generic [ref=e446] [cursor=pointer]: Manage
+          - generic [ref=e447]:
+            - generic [ref=e448]:
+              - generic [ref=e449]: Sam
+              - generic [ref=e450]: whatsapp:+491702222222 • 1 open
+            - generic [ref=e452] [cursor=pointer]: Manage
+  - tablist [ref=e128]:
+    - tab "  Home" [ref=e130] [cursor=pointer]:
+      - generic [ref=e131]:
+        - generic [ref=e133]: 
+        - generic [ref=e135]: 
+      - generic [ref=e136]: Home
+    - tab "  Tasks" [ref=e138] [cursor=pointer]:
+      - generic [ref=e139]:
+        - generic [ref=e141]: 
+        - generic [ref=e143]: 
+      - generic [ref=e144]: Tasks
+    - tab "  Penalties" [ref=e146] [cursor=pointer]:
+      - generic [ref=e147]:
+        - generic [ref=e149]: 
+        - generic [ref=e151]: 
+      - generic [ref=e152]: Penalties
+    - tab "  Admin" [active] [selected] [ref=e154] [cursor=pointer]:
+      - generic [ref=e155]:
+        - generic [ref=e157]: 
+        - generic [ref=e159]: 
+      - generic [ref=e160]: Admin
+    - tab "  Settings" [ref=e162] [cursor=pointer]:
+      - generic [ref=e163]:
+        - generic [ref=e165]: 
+        - generic [ref=e167]: 
+      - generic [ref=e168]: Settings

@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Roommate Chores",
+    "slug": "roommate-chores-mobile",
+    "version": "0.1.0",
+    "scheme": "roommate-chores",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "experiments": {
+      "typedRoutes": true
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
+
