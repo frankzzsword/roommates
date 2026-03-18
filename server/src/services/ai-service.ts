@@ -33,6 +33,16 @@ export interface AiWhatsappIntent {
   reason: string | null;
 }
 
+type WhatsappMessageKind =
+  | "assignment_reminder"
+  | "completion_check"
+  | "resolution_options"
+  | "handoff_notice"
+  | "done_confirmation"
+  | "skip_confirmation"
+  | "rescue_confirmation"
+  | "postpone_confirmation";
+
 const client = hasOpenAiCredentials()
   ? new OpenAI({ apiKey: config.openAiApiKey })
   : null;
@@ -49,6 +59,39 @@ function uniqueModels() {
   return Array.from(
     new Set([config.openAiSubtaskModel, "gpt-5-mini"].filter(Boolean))
   );
+}
+
+function fallbackWhatsappConversationMessage(input: {
+  kind: WhatsappMessageKind;
+  roommateName: string;
+  choreTitle: string;
+  dueDate?: string | null;
+  nextRoommateName?: string | null;
+}) {
+  const duePhrase = input.dueDate ? ` due by ${input.dueDate}` : "";
+
+  switch (input.kind) {
+    case "assignment_reminder":
+      return `Hey ${input.roommateName}, you have ${input.choreTitle} duty${duePhrase}. Please finish it when you can and let me know once it's done.`;
+    case "completion_check":
+      return `Hey ${input.roommateName}, were you able to finish ${input.choreTitle}? Just reply yes or no.`;
+    case "resolution_options":
+      return `No problem. Would you like to push ${input.choreTitle} to tomorrow, or should I assign someone else?`;
+    case "handoff_notice":
+      return `Hey ${input.roommateName}, ${input.choreTitle} was handed over to you. Can you take care of it and let me know when it's done?`;
+    case "done_confirmation":
+      return `Perfect, I marked ${input.choreTitle} as done.`;
+    case "skip_confirmation":
+      return input.nextRoommateName
+        ? `Okay, I moved ${input.choreTitle} to ${input.nextRoommateName}.`
+        : `Okay, I marked ${input.choreTitle} as skipped.`;
+    case "rescue_confirmation":
+      return `Thanks, I marked ${input.choreTitle} as rescued. The original turn still stays on record.`;
+    case "postpone_confirmation":
+      return `Okay, I pushed ${input.choreTitle} to tomorrow and left it with you.`;
+    default:
+      return `Hey ${input.roommateName}, quick update about ${input.choreTitle}.`;
+  }
 }
 
 function heuristicSubtasks(input: {
@@ -218,6 +261,63 @@ async function createResponse(input: string) {
   }
 
   throw lastError instanceof Error ? lastError : new Error("OpenAI request failed.");
+}
+
+export async function composeWhatsappConversationMessage(input: {
+  kind: WhatsappMessageKind;
+  roommateName: string;
+  choreTitle: string;
+  dueDate?: string | null;
+  nextRoommateName?: string | null;
+}) {
+  const fallback = fallbackWhatsappConversationMessage(input);
+
+  if (!client) {
+    return {
+      source: "heuristic" as const,
+      model: null,
+      text: fallback
+    };
+  }
+
+  try {
+    const response = await createResponse(`
+You write WhatsApp messages for a shared-apartment chore assistant.
+
+Write one short, natural message.
+It should feel human, clear, and calm, not robotic or overly cheerful.
+Use simple everyday English.
+Do not use bullet points, markdown, labels, or quotation marks.
+Keep it to 1 or 2 short sentences.
+
+Message type: ${input.kind}
+Roommate name: ${input.roommateName}
+Chore: ${input.choreTitle}
+Due date context: ${input.dueDate ?? "not provided"}
+Next roommate if relevant: ${input.nextRoommateName ?? "not relevant"}
+    `);
+
+    const text = response?.text?.trim();
+    if (!response || !text) {
+      return {
+        source: "heuristic" as const,
+        model: null,
+        text: fallback
+      };
+    }
+
+    return {
+      source: "openai" as const,
+      model: response.model,
+      text
+    };
+  } catch {
+    return {
+      source: "heuristic" as const,
+      model: null,
+      text: fallback
+    };
+  }
 }
 
 export async function suggestSubtasksWithAi(input: {

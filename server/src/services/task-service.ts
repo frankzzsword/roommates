@@ -1543,6 +1543,114 @@ export function listRecentEvents(limit = 10) {
     .all(limit) as EventLogEntry[];
 }
 
+export function hasConversationPromptBeenSent(
+  assignmentId: number,
+  promptType: string
+) {
+  const row = db
+    .prepare(
+      `
+      SELECT id
+      FROM event_log
+      WHERE assignment_id = ?
+        AND event_type = 'CONVERSATION_MESSAGE_SENT'
+        AND payload_json LIKE ?
+      ORDER BY id DESC
+      LIMIT 1
+    `
+    )
+    .get(assignmentId, `%"promptType":"${promptType}"%`) as { id: number } | undefined;
+
+  return Boolean(row);
+}
+
+export function getLatestConversationPromptForWhatsapp(whatsappNumber: string) {
+  const row = db
+    .prepare(
+      `
+      SELECT
+        assignment_id as assignmentId,
+        payload_json as payloadJson,
+        created_at as createdAt
+      FROM event_log
+      WHERE event_type = 'CONVERSATION_MESSAGE_SENT'
+        AND payload_json LIKE ?
+      ORDER BY id DESC
+      LIMIT 1
+    `
+    )
+    .get(`%"effectiveTo":"${whatsappNumber}"%`) as
+    | {
+        assignmentId: number | null;
+        payloadJson: string | null;
+        createdAt: string;
+      }
+    | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  let payload: Record<string, unknown> | null = null;
+  if (row.payloadJson) {
+    try {
+      payload = JSON.parse(row.payloadJson) as Record<string, unknown>;
+    } catch {
+      payload = null;
+    }
+  }
+
+  return {
+    assignmentId: row.assignmentId,
+    createdAt: row.createdAt,
+    promptType:
+      typeof payload?.promptType === "string" ? payload.promptType : null,
+    effectiveTo:
+      typeof payload?.effectiveTo === "string" ? payload.effectiveTo : null
+  };
+}
+
+export function postponeAssignmentToTomorrow(
+  assignmentId: number,
+  reason: string | null
+) {
+  const assignment = getAssignmentById(assignmentId);
+  if (!assignment || assignment.status !== "pending") {
+    return null;
+  }
+
+  const tomorrow = new Date(`${assignment.dueDate}T12:00:00`);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dueDate = tomorrow.toISOString().slice(0, 10);
+
+  db.prepare(
+    `
+      UPDATE assignments
+      SET
+        due_date = @dueDate,
+        status_note = @reason,
+        escalation_level = 0,
+        reminder_sent_at = NULL,
+        penalty_applied_at = NULL,
+        completed_at = NULL
+      WHERE id = @assignmentId
+    `
+  ).run({
+    assignmentId,
+    dueDate,
+    reason: reason ?? "pushed to tomorrow"
+  });
+
+  addEventLog({
+    roommateId: assignment.roommateId,
+    assignmentId,
+    eventType: "ASSIGNMENT_POSTPONED",
+    payload: JSON.stringify({ dueDate, reason })
+  });
+
+  return getAssignmentById(assignmentId);
+}
+
 export function getAssignmentsDueForReminder(now: Date): Assignment[] {
   return listAllPendingAssignments().filter((assignment) => {
     if (!assignment.roommateReminderEnabled || assignment.reminderSentAt) {
@@ -1563,5 +1671,27 @@ export function getAssignmentsDueForReminder(now: Date): Assignment[] {
     const reminderAt = new Date(dueAt.getTime() - leadMinutes * 60 * 1000);
 
     return now >= reminderAt;
+  });
+}
+
+export function getAssignmentsDueForCompletionCheck(now: Date): Assignment[] {
+  return listAllPendingAssignments().filter((assignment) => {
+    if (!assignment.roommateReminderEnabled) {
+      return false;
+    }
+
+    const settings = getHouseSettings();
+    if (!settings.autoRemindersEnabled || !assignment.reminderSentAt) {
+      return false;
+    }
+
+    if (hasConversationPromptBeenSent(assignment.id, "completion_check")) {
+      return false;
+    }
+
+    const dueHour = assignment.roommateReminderHour || assignment.defaultDueHour;
+    const dueAt = new Date(`${assignment.dueDate}T${String(dueHour).padStart(2, "0")}:00:00`);
+
+    return now >= dueAt;
   });
 }

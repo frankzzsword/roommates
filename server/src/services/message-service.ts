@@ -1,15 +1,20 @@
 import { isTrustedProxyWhatsappNumber } from "../config.js";
 import type { Assignment, CommandResult } from "../lib/types.js";
-import { interpretWhatsappIntentWithAi } from "./ai-service.js";
+import {
+  composeWhatsappConversationMessage,
+  interpretWhatsappIntentWithAi
+} from "./ai-service.js";
 import {
   addEventLog,
   findRoommateByWhatsappNumber,
   getAssignmentById,
+  getLatestConversationPromptForWhatsapp,
   getOldestPendingAssignment,
   handoffAssignmentToNextRoommate,
   listAllPendingAssignments,
   listPendingAssignmentsForRoommate,
   listRecentEvents,
+  postponeAssignmentToTomorrow,
   rescueAssignment,
   updateAssignmentStatus
 } from "./task-service.js";
@@ -65,6 +70,41 @@ type ActionableIntentAction = "DONE" | "SKIP" | "SKIP_REASSIGN" | "RESCUE";
 
 function normalizeBody(body: string) {
   return body.trim().replace(/\s+/g, " ");
+}
+
+function isAffirmativeReply(body: string) {
+  const lowered = normalizeMatchText(body);
+  return /^(yes|yeah|yep|done|finished|completed)\b/.test(lowered);
+}
+
+function isNegativeReply(body: string) {
+  const lowered = normalizeMatchText(body);
+  return (
+    /^(no|nope|not yet|didn t|didnt|haven t|havent)\b/.test(lowered) ||
+    lowered.includes("not yet") ||
+    lowered.includes("haven t") ||
+    lowered.includes("havent")
+  );
+}
+
+function wantsTomorrow(body: string) {
+  const lowered = normalizeMatchText(body);
+  return (
+    lowered.includes("tomorrow") ||
+    lowered.includes("push it") ||
+    lowered.includes("move it to tomorrow")
+  );
+}
+
+function wantsReassign(body: string) {
+  const lowered = normalizeMatchText(body);
+  return (
+    lowered.includes("assign someone else") ||
+    lowered.includes("someone else") ||
+    lowered.includes("pass it on") ||
+    lowered.includes("give it to someone else") ||
+    lowered.includes("reassign")
+  );
 }
 
 function buildHelpMessage() {
@@ -400,12 +440,13 @@ function getPendingAssignmentsForInterpretation(
 
 async function notifyAssignmentHandoff(reassigned: Assignment) {
   const outboundTo = resolveOutboundWhatsappNumber(reassigned.whatsappNumber);
-  const message = [
-    `${reassigned.roommateName}, you are now up for ${reassigned.choreTitle}.`,
-    `Due date: ${reassigned.dueDate}`,
-    'Reply naturally, for example "I finished it" or "I can\'t do it today, pass it on".',
-    `Fallback: DONE ${reassigned.id} or SKIP ${reassigned.id} <reason>.`
-  ].join("\n");
+  const composed = await composeWhatsappConversationMessage({
+    kind: "handoff_notice",
+    roommateName: reassigned.roommateName,
+    choreTitle: reassigned.choreTitle,
+    dueDate: reassigned.dueDate
+  });
+  const message = composed.text;
 
   try {
     await sendWhatsappMessage(reassigned.whatsappNumber, message);
@@ -419,6 +460,18 @@ async function notifyAssignmentHandoff(reassigned: Assignment) {
         effectiveTo: outboundTo
       })
     });
+    addEventLog({
+      roommateId: reassigned.roommateId,
+      assignmentId: reassigned.id,
+      eventType: "CONVERSATION_MESSAGE_SENT",
+      payload: JSON.stringify({
+        promptType: "handoff_notice",
+        originalTo: reassigned.whatsappNumber,
+        effectiveTo: outboundTo,
+        source: composed.source,
+        model: composed.model
+      })
+    });
   } catch (error) {
     addEventLog({
       roommateId: reassigned.roommateId,
@@ -429,6 +482,53 @@ async function notifyAssignmentHandoff(reassigned: Assignment) {
       })
     });
   }
+}
+
+async function sendConversationalReply(params: {
+  to: string;
+  roommateId: number | null;
+  assignmentId: number | null;
+  promptType:
+    | "done_confirmation"
+    | "skip_confirmation"
+    | "rescue_confirmation"
+    | "postpone_confirmation"
+    | "resolution_options";
+  roommateName: string;
+  choreTitle: string;
+  dueDate?: string | null;
+  nextRoommateName?: string | null;
+  deliver?: boolean;
+}) {
+  const outboundTo = resolveOutboundWhatsappNumber(params.to);
+  const composed = await composeWhatsappConversationMessage({
+    kind: params.promptType,
+    roommateName: params.roommateName,
+    choreTitle: params.choreTitle,
+    dueDate: params.dueDate,
+    nextRoommateName: params.nextRoommateName
+  });
+  if (params.deliver !== false) {
+    await sendWhatsappMessage(params.to, composed.text);
+  }
+  if (params.assignmentId) {
+    rememberLastOutboundAssignment(outboundTo, params.assignmentId);
+  }
+  addEventLog({
+    roommateId: params.roommateId,
+    assignmentId: params.assignmentId,
+    eventType: "CONVERSATION_MESSAGE_SENT",
+    payload: JSON.stringify({
+      promptType: params.promptType,
+      originalTo: params.to,
+      effectiveTo: outboundTo,
+      delivered: params.deliver !== false,
+      source: composed.source,
+      model: composed.model
+    })
+  });
+
+  return composed.text;
 }
 
 function handleDone(
@@ -466,7 +566,7 @@ function handleDone(
   });
 
   return {
-    message: `Marked #${assignmentId} ${assignment.choreTitle} as done.`,
+    message: `Thanks, I marked ${assignment.choreTitle} as done.`,
     assignmentId
   };
 }
@@ -510,7 +610,7 @@ function handleSkip(
 
   if (!reassignToNext) {
     return {
-      message: `Marked #${assignmentId} ${assignment.choreTitle} as skipped.${reason ? ` Reason: ${reason}` : ""}`,
+      message: `Okay, I marked ${assignment.choreTitle} as skipped.${reason ? ` Reason noted: ${reason}` : ""}`,
       assignmentId
     };
   }
@@ -524,7 +624,7 @@ function handleSkip(
   }
 
   return notifyAssignmentHandoff(reassigned).then(() => ({
-    message: `Marked #${assignmentId} ${assignment.choreTitle} as skipped and handed it to ${reassigned.roommateName} as #${reassigned.id}.`,
+    message: `Okay, I handed ${assignment.choreTitle} over to ${reassigned.roommateName}.`,
     assignmentId
   }));
 }
@@ -576,9 +676,99 @@ function handleRescue(
   });
 
   return {
-    message: `Marked #${assignmentId} ${assignment.choreTitle} as rescued by ${rescued.rescuedByRoommateName ?? "the house"}. ${assignment.roommateName} keeps the missed turn on record.`,
+    message: `Thanks, I marked ${assignment.choreTitle} as rescued. ${assignment.roommateName} still keeps the missed turn on record.`,
     assignmentId
   };
+}
+
+async function handleConversationalReply(actor: {
+  whatsappNumber: string;
+  roommateId: number | null;
+  trustedProxy: boolean;
+}, body: string) {
+  const latestPrompt = getLatestConversationPromptForWhatsapp(actor.whatsappNumber);
+  const assignmentId =
+    latestPrompt?.assignmentId ?? getLastReferencedAssignmentId(actor.whatsappNumber);
+
+  if (!latestPrompt?.promptType || !assignmentId) {
+    return null;
+  }
+
+  const assignment = getAssignmentById(assignmentId);
+  if (!assignment || assignment.status !== "pending") {
+    return null;
+  }
+
+  if (
+    latestPrompt.promptType === "assignment_reminder" ||
+    latestPrompt.promptType === "completion_check"
+  ) {
+    if (isAffirmativeReply(body)) {
+      handleDone(actor, String(assignmentId), assignmentId);
+      const message = await sendConversationalReply({
+        to: actor.whatsappNumber,
+        roommateId: assignment.roommateId,
+        assignmentId,
+        promptType: "done_confirmation",
+        roommateName: assignment.roommateName,
+        choreTitle: assignment.choreTitle,
+        dueDate: assignment.dueDate,
+        deliver: false
+      });
+      return { message, assignmentId };
+    }
+
+    if (isNegativeReply(body)) {
+      const message = await sendConversationalReply({
+        to: actor.whatsappNumber,
+        roommateId: assignment.roommateId,
+        assignmentId,
+        promptType: "resolution_options",
+        roommateName: assignment.roommateName,
+        choreTitle: assignment.choreTitle,
+        dueDate: assignment.dueDate,
+        deliver: false
+      });
+      return { message, assignmentId };
+    }
+  }
+
+  if (latestPrompt.promptType === "resolution_options") {
+    if (wantsTomorrow(body)) {
+      const postponed = postponeAssignmentToTomorrow(
+        assignmentId,
+        "postponed in WhatsApp conversation"
+      );
+      if (!postponed) {
+        return null;
+      }
+
+      const message = await sendConversationalReply({
+        to: actor.whatsappNumber,
+        roommateId: postponed.roommateId,
+        assignmentId,
+        promptType: "postpone_confirmation",
+        roommateName: postponed.roommateName,
+        choreTitle: postponed.choreTitle,
+        dueDate: postponed.dueDate,
+        deliver: false
+      });
+      return { message, assignmentId };
+    }
+
+    if (wantsReassign(body)) {
+      const result = await handleSkip(
+        actor,
+        String(assignmentId),
+        "reassigned in WhatsApp conversation",
+        true,
+        assignmentId
+      );
+      return result;
+    }
+  }
+
+  return null;
 }
 
 export async function processInboundMessage(params: {
@@ -602,6 +792,11 @@ export async function processInboundMessage(params: {
     return {
       message: "Your number is not registered yet. Ask the admin to add you first."
     };
+  }
+
+  const conversationalResult = await handleConversationalReply(actor, normalized);
+  if (conversationalResult) {
+    return conversationalResult;
   }
 
   const pendingAssignments = getPendingAssignmentsForInterpretation(
