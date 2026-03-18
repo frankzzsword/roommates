@@ -188,7 +188,7 @@ export default function MoneyScreen() {
             <View style={styles.rankCopy}>
               <Text style={styles.rankName}>{entry.roommateName}</Text>
               <Text style={styles.rankMeta}>
-                {entry.completedCount} done • {entry.rescueCount} rescues • {entry.strikeCount} strikes
+                {entry.completedCount} done • 🔥 {entry.streak} current • 🏆 {entry.bestStreak} best
               </Text>
             </View>
             <Text style={styles.rankScore}>{entry.totalScore}</Text>

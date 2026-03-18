@@ -578,26 +578,52 @@ export function getOutstandingPenalties(snapshot: HouseholdSnapshot, roommateId?
 export function getScoreboard(snapshot: HouseholdSnapshot): UiScoreboardEntry[] {
   return snapshot.roommates
     .map((roommate) => {
+      const streakTimeline = snapshot.chores
+        .filter((task) => task.responsibleRoommateId === roommate.id)
+        .filter((task) => task.status !== "pending" && task.status !== "overdue")
+        .sort((left, right) => new Date(left.dueAt).getTime() - new Date(right.dueAt).getTime());
+
+      let currentStreak = 0;
+      let bestStreak = 0;
+      for (const task of streakTimeline) {
+        const successfulCompletion =
+          task.responsibleRoommateId === roommate.id &&
+          task.status === "done" &&
+          !task.strikeApplied;
+
+        if (successfulCompletion) {
+          currentStreak += 1;
+          bestStreak = Math.max(bestStreak, currentStreak);
+        } else {
+          currentStreak = 0;
+        }
+      }
+
       const weeklyScore =
         roommate.completedCount * 14 -
         roommate.missedCount * 8 -
         roommate.strikeCount * 6 +
         roommate.rescueCount * 10 -
         roommate.pendingCount * 2 +
-        Math.round(roommate.reliability / 5);
+        Math.round(roommate.reliability / 5) +
+        currentStreak * 3;
       const monthlyScore =
         roommate.completedCount * 22 -
         roommate.missedCount * 10 +
         roommate.strikeCount * -10 +
         roommate.rescueCount * 14 +
-        Math.round(roommate.reliability * 0.8);
-      const streak = Math.max(0, roommate.completedCount + roommate.rescueCount - roommate.missedCount);
+        Math.round(roommate.reliability * 0.8) +
+        bestStreak * 2;
+      const streak = currentStreak;
       const totalScore = weeklyScore + monthlyScore;
 
       let achievementTone: UiScoreboardEntry["achievementTone"] = "neutral";
       let achievementSummary = "Needs a steadier rhythm";
 
-      if (roommate.reliability >= 90 && roommate.missedCount === 0 && roommate.strikeCount === 0) {
+      if (currentStreak >= 5) {
+        achievementTone = "success";
+        achievementSummary = `On a ${currentStreak} task streak and flying`;
+      } else if (roommate.reliability >= 90 && roommate.missedCount === 0 && roommate.strikeCount === 0) {
         achievementTone = "success";
         achievementSummary = "Locked in and carrying the flat";
       } else if (roommate.rescueCount > roommate.strikeCount) {
@@ -623,6 +649,7 @@ export function getScoreboard(snapshot: HouseholdSnapshot): UiScoreboardEntry[] 
         rescueCount: roommate.rescueCount,
         strikeCount: roommate.strikeCount,
         streak,
+        bestStreak,
         achievementTone,
         achievementSummary
       };

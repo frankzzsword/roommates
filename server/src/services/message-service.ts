@@ -12,6 +12,7 @@ import {
   getAssignmentById,
   getLatestConversationPromptForWhatsapp,
   getOldestPendingAssignment,
+  getRoommateStreakSummary,
   getRoommateById,
   handoffAssignmentToNextRoommate,
   listBalances,
@@ -693,8 +694,16 @@ function handleDone(
     })
   });
 
+  const streak = getRoommateStreakSummary(assignment.roommateId);
+  const streakMessage =
+    streak.currentStreak >= 5
+      ? ` 🔥 Huge win. You kept a ${streak.currentStreak} task streak alive.`
+      : streak.currentStreak >= 2
+        ? ` 🔥 Nice, that keeps your streak alive at ${streak.currentStreak}.`
+        : "";
+
   return {
-    message: `✅ Nice, I marked ${assignment.choreTitle} as done.`,
+    message: `✅ Nice, I marked ${assignment.choreTitle} as done.${streakMessage}`,
     assignmentId
   };
 }
@@ -841,6 +850,11 @@ async function handleConversationalReply(actor: {
   ) {
     if (isAffirmativeReply(body)) {
       handleDone(actor, String(assignmentId), assignmentId);
+      const streak = getRoommateStreakSummary(assignment.roommateId);
+      const streakContext =
+        streak.currentStreak >= 2
+          ? `They are on a ${streak.currentStreak} task streak right now. Congratulate them for keeping it alive in a playful Duolingo or Snapchat streak style.`
+          : null;
       const message = await sendConversationalReply({
         to: actor.whatsappNumber,
         roommateId: assignment.roommateId,
@@ -849,6 +863,7 @@ async function handleConversationalReply(actor: {
         roommateName: assignment.roommateName,
         choreTitle: assignment.choreTitle,
         dueDate: assignment.dueDate,
+        contextNote: streakContext,
         deliver: false
       });
       return { message, assignmentId };

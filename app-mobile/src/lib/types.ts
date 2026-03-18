@@ -201,6 +201,7 @@ export interface UiScoreboardEntry {
   rescueCount: number;
   strikeCount: number;
   streak: number;
+  bestStreak: number;
   achievementTone: "success" | "warning" | "neutral";
   achievementSummary: string;
 }

@@ -2057,6 +2057,38 @@ export function listBalances(): BalanceEntry[] {
   return balances;
 }
 
+export function getRoommateStreakSummary(roommateId: number) {
+  const assignments = listAssignments()
+    .filter((assignment) => assignment.responsibleRoommateId === roommateId)
+    .filter((assignment) => assignment.status !== "pending")
+    .sort(
+      (left, right) =>
+        new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime()
+    );
+
+  let currentStreak = 0;
+  let bestStreak = 0;
+
+  for (const assignment of assignments) {
+    const successfulCompletion =
+      assignment.status === "done" &&
+      assignment.resolutionType !== "rescued" &&
+      !assignment.strikeApplied;
+
+    if (successfulCompletion) {
+      currentStreak += 1;
+      bestStreak = Math.max(bestStreak, currentStreak);
+    } else {
+      currentStreak = 0;
+    }
+  }
+
+  return {
+    currentStreak,
+    bestStreak
+  };
+}
+
 export function addEventLog(params: {
   roommateId: number | null;
   assignmentId: number | null;

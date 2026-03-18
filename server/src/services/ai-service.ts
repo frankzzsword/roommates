@@ -84,7 +84,7 @@ function getWhatsappMessageRequirements(kind: WhatsappMessageKind) {
     case "handoff_notice":
       return "Tell them the task was handed to them and ask them to take care of it tonight.";
     case "done_confirmation":
-      return "Confirm that the task is marked done.";
+      return "Confirm that the task is marked done. If the extra context mentions a streak, congratulate them like a Duolingo or Snapchat streak win, but keep it natural.";
     case "skip_confirmation":
       return "Confirm that the task was skipped or moved to the next roommate.";
     case "rescue_confirmation":
@@ -102,6 +102,7 @@ function fallbackWhatsappConversationMessage(input: {
   choreTitle: string;
   dueDate?: string | null;
   nextRoommateName?: string | null;
+  contextNote?: string | null;
 }) {
   const duePhrase = input.dueDate ? ` due by ${input.dueDate}` : "";
 
@@ -123,7 +124,9 @@ function fallbackWhatsappConversationMessage(input: {
     case "handoff_notice":
       return `😃 Hey ${input.roommateName}, ${input.choreTitle} was handed over to you for tonight. Can you take care of it this evening and message me when it’s done?`;
     case "done_confirmation":
-      return `😍 Amazing, I marked ${input.choreTitle} as done ♥️`;
+      return input.contextNote
+        ? `😍 Amazing, I marked ${input.choreTitle} as done ♥️ ${input.contextNote}`
+        : `😍 Amazing, I marked ${input.choreTitle} as done ♥️`;
     case "skip_confirmation":
       return input.nextRoommateName
         ? `😌 Okay, I moved ${input.choreTitle} to ${input.nextRoommateName}.`

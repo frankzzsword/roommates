@@ -87,7 +87,7 @@ export default function HomeScreen() {
               {myEntry.weeklyScore} weekly • {myEntry.monthlyScore} monthly • {myEntry.totalScore} total
             </Text>
             <Text style={styles.personalMeta}>
-              {myEntry.completedCount} done • {myEntry.rescueCount} rescues • {myEntry.strikeCount} strikes
+              🔥 {myEntry.streak} streak • 🏆 {myEntry.bestStreak} best • {myEntry.strikeCount} strikes
             </Text>
           </View>
         ) : (
@@ -105,7 +105,7 @@ export default function HomeScreen() {
             <View style={styles.leaderCopy}>
               <Text style={styles.leaderName}>{leader.roommateName}</Text>
               <Text style={styles.leaderMeta}>
-                {leader.weeklyScore} weekly • {leader.rescueCount} rescues • {leader.streak} streak
+                {leader.weeklyScore} weekly • {leader.rescueCount} rescues • 🔥 {leader.streak} streak
               </Text>
             </View>
             <Text style={styles.leaderScore}>{leader.totalScore}</Text>
