@@ -312,6 +312,7 @@ export async function composeWhatsappConversationMessage(input: {
   choreTitle: string;
   dueDate?: string | null;
   nextRoommateName?: string | null;
+  contextNote?: string | null;
 }) {
   const fallback = fallbackWhatsappConversationMessage(input);
 
@@ -349,6 +350,7 @@ Roommate name: ${input.roommateName}
 Chore: ${input.choreTitle}
 Due date context: ${input.dueDate ?? "not provided"}
 Next roommate if relevant: ${input.nextRoommateName ?? "not relevant"}
+Extra context if relevant: ${input.contextNote ?? "none"}
 Required content: ${getWhatsappMessageRequirements(input.kind)}
     `);
 
@@ -517,6 +519,12 @@ function heuristicWhatsappIntent(body: string): AiWhatsappIntent {
   const lowered = normalized.toLowerCase();
   const assignmentIdMatch = normalized.match(/#?(\d+)/);
   const assignmentId = assignmentIdMatch ? Number(assignmentIdMatch[1]) : null;
+  const futureSchedulingLanguage =
+    lowered.includes("next week") ||
+    lowered.includes("in 2 weeks") ||
+    lowered.includes("in two weeks") ||
+    lowered.includes("two weeks from now") ||
+    lowered.includes("later this week");
 
   if (!normalized) {
     return { action: "HELP", assignmentId: null, reason: null };
@@ -544,13 +552,16 @@ function heuristicWhatsappIntent(body: string): AiWhatsappIntent {
   }
 
   if (
-    lowered.includes("can't do") ||
-    lowered.includes("cant do") ||
-    lowered.includes("cannot do") ||
-    lowered.includes("skip and pass") ||
-    lowered.includes("give it to the next") ||
-    lowered.includes("assign it to the next") ||
-    lowered.includes("not today")
+    !futureSchedulingLanguage &&
+    (
+      lowered.includes("can't do") ||
+      lowered.includes("cant do") ||
+      lowered.includes("cannot do") ||
+      lowered.includes("skip and pass") ||
+      lowered.includes("give it to the next") ||
+      lowered.includes("assign it to the next") ||
+      lowered.includes("not today")
+    )
   ) {
     return {
       action: "SKIP_REASSIGN",
@@ -652,6 +663,7 @@ Rules:
 - If the message is generic and there is a last referenced assignment id, use it.
 - Only assign an assignmentId that appears in the pending assignments list, unless there is exactly one obvious pending item and the user is clearly referring to it.
 - Natural language is the primary interface. Messages like "I finished the kitchen", "I did Noah's trash", or "I can't do bathroom today, pass it on" should map to a concrete action whenever the pending list makes that obvious.
+- Messages can refer to future timing like next week or in 2 weeks. Use the dueDate values to choose the right assignment when that happens.
 - Prefer matching by chore title or roommate name instead of returning UNKNOWN.
 - reason should be a short plain text reason or null.
     `);

@@ -20,7 +20,13 @@ import {
 } from "./services/household-service.js";
 import { processInboundMessage } from "./services/message-service.js";
 import { buildTwimlMessage } from "./services/twilio-service.js";
-import { listAssignments, listRecentEvents, listRoommates } from "./services/task-service.js";
+import {
+  findRoommateByCredentials,
+  getRoommateById,
+  listAssignments,
+  listRecentEvents,
+  listRoommates
+} from "./services/task-service.js";
 
 initializeDatabase();
 
@@ -43,6 +49,11 @@ function asNullableNumber(value: unknown) {
 
 function asString(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function asRequiredString(value: unknown) {
+  const parsed = asString(value)?.trim();
+  return parsed ? parsed : undefined;
 }
 
 function asNullableString(value: unknown) {
@@ -168,6 +179,24 @@ export function createApp() {
 
   app.get("/api/roommates", (_req, res) => {
     res.json({ roommates: listRoommates() });
+  });
+
+  app.post("/api/login", (req, res) => {
+    const name = asRequiredString(req.body.name);
+    const password = asRequiredString(req.body.password);
+
+    if (!name || !password) {
+      res.status(400).json({ error: "Name and password are required." });
+      return;
+    }
+
+    const roommate = findRoommateByCredentials(name, password);
+    if (!roommate) {
+      res.status(401).json({ error: "Incorrect name or password." });
+      return;
+    }
+
+    res.json({ roommate });
   });
 
   app.post("/api/roommates", (req, res) => {
@@ -376,6 +405,33 @@ export function createApp() {
         to: asString(req.body.to),
         message: asString(req.body.message)
       });
+      res.json({ result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/app-message", async (req, res, next) => {
+    try {
+      const roommateId = asNumber(req.body.roommateId);
+      const body = asRequiredString(req.body.body);
+
+      if (!roommateId || !body) {
+        res.status(400).json({ error: "roommateId and body are required." });
+        return;
+      }
+
+      const roommate = getRoommateById(roommateId);
+      if (!roommate) {
+        res.status(404).json({ error: "Roommate not found." });
+        return;
+      }
+
+      const result = await processInboundMessage({
+        from: roommate.whatsappNumber,
+        body
+      });
+
       res.json({ result });
     } catch (error) {
       next(error);

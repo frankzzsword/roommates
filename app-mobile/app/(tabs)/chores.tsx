@@ -1,71 +1,210 @@
+import { ReactNode, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+import { ActionButton } from "@/src/components/ActionButton";
 import { AppScreen } from "@/src/components/Screen";
-import { RoommateSwitcher } from "@/src/components/RoommateSwitcher";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { SectionCard } from "@/src/components/SectionCard";
-import { getRoommateAssignments } from "@/src/data/mock";
+import { TextField } from "@/src/components/TextField";
 import { useHousehold } from "@/src/context/HouseholdContext";
 import { formatTaskMode, getTaskBadge, getTaskHeadline, getTaskTone } from "@/src/lib/task-presentation";
 import type { UiChore } from "@/src/lib/types";
 import { colors, radii, spacing } from "@/src/theme";
 
+function startOfToday() {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return now;
+}
+
 export default function TasksScreen() {
-  const { activeRoommate, setActiveRoommate, snapshot } = useHousehold();
-  const personalTasks = getRoommateAssignments(snapshot, activeRoommate.id);
-  const urgentTasks = snapshot.chores.filter(
-    (chore) => chore.accountabilityState === "escalated" || chore.status === "overdue"
-  );
-  const rescuedTasks = snapshot.chores.filter((chore) => chore.resolutionType === "rescued");
+  const { activeRoommate, sendAppMessage, snapshot, syncNotice } = useHousehold();
+  const [customMessage, setCustomMessage] = useState("");
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  const { currentTasks, futureTasks, historyTasks, rescueableTasks } = useMemo(() => {
+    const today = startOfToday();
+    const mine = snapshot.chores.filter((task) => task.assigneeId === activeRoommate.id);
+    const current = mine.filter(
+      (task) => new Date(task.dueAt) <= today || task.status === "pending" || task.status === "overdue"
+    );
+    const future = mine.filter((task) => new Date(task.dueAt) > today && task.status === "pending");
+    const history = snapshot.chores
+      .filter(
+        (task) =>
+          task.responsibleRoommateId === activeRoommate.id ||
+          task.rescuedByRoommateId === activeRoommate.id ||
+          task.assigneeId === activeRoommate.id
+      )
+      .filter((task) => task.status !== "pending" && task.status !== "overdue")
+      .slice(0, 8);
+    const rescuePool = snapshot.chores.filter(
+      (task) =>
+        task.assigneeId !== activeRoommate.id &&
+        (task.accountabilityState === "escalated" || task.status === "overdue")
+    );
+
+    return {
+      currentTasks: current,
+      futureTasks: future,
+      historyTasks: history,
+      rescueableTasks: rescuePool
+    };
+  }, [activeRoommate.id, snapshot.chores]);
+
+  async function runAction(key: string, message: string) {
+    setBusyKey(key);
+    try {
+      await sendAppMessage(message);
+      setCustomMessage("");
+    } finally {
+      setBusyKey(null);
+    }
+  }
 
   return (
     <AppScreen>
       <ScreenHeader
-        eyebrow="Task board"
-        title="See what needs action"
-        subtitle="Rolling and fixed chores now read differently. You can tell at a glance whether a task is simply upcoming, already reminded, fully escalated, or rescued."
+        eyebrow="My tasks"
+        title={`Hey ${activeRoommate.name}`}
+        subtitle="Everything you can say in WhatsApp works here too. Use the quick buttons or just type naturally."
       />
 
-      <SectionCard title="View roommate queue" subtitle="Every roommate sees the same visual system." tone="accent">
-        <RoommateSwitcher
-          activeRoommateId={activeRoommate.id}
-          onSelect={setActiveRoommate}
-          roommates={snapshot.roommates}
-        />
-      </SectionCard>
-
       <SectionCard
-        title={`Assigned to ${activeRoommate.name}`}
-        subtitle="This feed combines due timing with accountability state."
+        title="Quick message to the house bot"
+        subtitle="Examples: I finished the kitchen. I am not home this week. I can rescue Noah's bathroom task."
+        tone="accent"
       >
-        {personalTasks.map((task) => (
-          <TaskCard key={task.id} task={task} />
-        ))}
-        {personalTasks.length === 0 ? <Text style={styles.emptyCopy}>No tasks assigned here right now.</Text> : null}
-      </SectionCard>
+        <TextField
+          label="Message"
+          multiline
+          onChangeText={setCustomMessage}
+          placeholder="I won't be home for my task next week, please switch me"
+          value={customMessage}
+        />
+        <ActionButton
+          busy={busyKey === "custom"}
+          label="Send action"
+          onPress={() => {
+            if (!customMessage.trim()) {
+              return;
+            }
 
-      <SectionCard title="Escalated now" subtitle="These are the tasks the house should notice immediately." tone="danger">
-        {urgentTasks.map((task) => (
-          <TaskCard key={task.id} task={task} />
-        ))}
-        {urgentTasks.length === 0 ? <Text style={styles.emptyCopy}>Nothing is escalated right now.</Text> : null}
+            void runAction("custom", customMessage.trim());
+          }}
+        />
+        {syncNotice ? <Text style={styles.notice}>{syncNotice}</Text> : null}
       </SectionCard>
 
       <SectionCard
-        title="Rescue log"
-        subtitle="If someone else covers a missed turn, the rescuer gets credit and the original owner keeps the debt."
+        title="My open tasks"
+        subtitle="These are the things currently on you, including anything already lined up for later."
+      >
+        {currentTasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            footer={
+              <View style={styles.buttonRow}>
+                <ActionButton
+                  busy={busyKey === `done-${task.id}`}
+                  label="Done"
+                  onPress={() => void runAction(`done-${task.id}`, `I finished ${task.title}`)}
+                />
+                <ActionButton
+                  busy={busyKey === `swap-${task.id}`}
+                  label="Not home / busy"
+                  onPress={() =>
+                    void runAction(
+                      `swap-${task.id}`,
+                      `I am not home for ${task.title} this week, please switch me`
+                    )
+                  }
+                  tone="secondary"
+                />
+              </View>
+            }
+          />
+        ))}
+        {currentTasks.length === 0 ? (
+          <Text style={styles.emptyCopy}>Nothing urgent is on you right now.</Text>
+        ) : null}
+      </SectionCard>
+
+      <SectionCard
+        title="Coming up for me"
+        subtitle="Future weekly turns and extra house jobs already on your schedule."
+      >
+        {futureTasks.slice(0, 6).map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            footer={
+              <View style={styles.buttonRow}>
+                <ActionButton
+                  busy={busyKey === `future-${task.id}`}
+                  label="I won't be home"
+                  onPress={() =>
+                    void runAction(
+                      `future-${task.id}`,
+                      `I will not be home for ${task.title} on ${task.dueLabel}, please switch me`
+                    )
+                  }
+                  tone="secondary"
+                />
+              </View>
+            }
+          />
+        ))}
+        {futureTasks.length === 0 ? <Text style={styles.emptyCopy}>No future tasks scheduled yet.</Text> : null}
+      </SectionCard>
+
+      <SectionCard
+        title="House needs help"
+        subtitle="If something is slipping, you can rescue it here and the scoreboard will reflect it."
         tone="warning"
       >
-        {rescuedTasks.map((task) => (
+        {rescueableTasks.slice(0, 4).map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            footer={
+              <View style={styles.buttonRow}>
+                <ActionButton
+                  busy={busyKey === `rescue-${task.id}`}
+                  label={`Rescue for ${task.assignee}`}
+                  onPress={() =>
+                    void runAction(
+                      `rescue-${task.id}`,
+                      `I did ${task.assignee}'s ${task.title} for them`
+                    )
+                  }
+                  tone="danger"
+                />
+              </View>
+            }
+          />
+        ))}
+        {rescueableTasks.length === 0 ? <Text style={styles.emptyCopy}>Nothing needs a rescue right now.</Text> : null}
+      </SectionCard>
+
+      <SectionCard title="My recent history" subtitle="Finished, skipped, rescued, and carried tasks stay visible here.">
+        {historyTasks.map((task) => (
           <TaskCard key={task.id} task={task} />
         ))}
-        {rescuedTasks.length === 0 ? <Text style={styles.emptyCopy}>No rescues logged this round.</Text> : null}
+        {historyTasks.length === 0 ? <Text style={styles.emptyCopy}>No recent history yet.</Text> : null}
       </SectionCard>
     </AppScreen>
   );
 }
 
-function TaskCard({ task }: { task: UiChore }) {
+function TaskCard({
+  task,
+  footer
+}: {
+  task: UiChore;
+  footer?: ReactNode;
+}) {
   const tone = getTaskTone(task);
 
   return (
@@ -96,15 +235,18 @@ function TaskCard({ task }: { task: UiChore }) {
       </View>
       <Text style={styles.taskDescription}>{task.description}</Text>
       <Text style={styles.taskHeadline}>{getTaskHeadline(task)}</Text>
-      <View style={styles.metaStrip}>
-        <Text style={styles.metaStripText}>{task.cadence}</Text>
-        <Text style={styles.metaStripText}>{task.dueLabel}</Text>
-      </View>
+      <Text style={styles.taskSubline}>{task.cadence} • {task.dueLabel}</Text>
+      {footer}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  notice: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18
+  },
   taskCard: {
     backgroundColor: colors.white,
     borderColor: colors.border,
@@ -141,20 +283,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800"
   },
-  metaStrip: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  metaStripText: {
-    backgroundColor: colors.surfaceStrong,
-    borderRadius: radii.pill,
-    color: colors.ink,
-    fontSize: 12,
-    fontWeight: "800",
-    overflow: "hidden",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs
+  taskSubline: {
+    color: colors.muted,
+    fontSize: 13
   },
   badge: {
     alignSelf: "flex-start",
@@ -181,6 +312,10 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: "900"
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: spacing.sm
   },
   emptyCopy: {
     color: colors.muted,

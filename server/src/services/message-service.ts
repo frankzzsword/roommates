@@ -444,7 +444,8 @@ async function notifyAssignmentHandoff(reassigned: Assignment) {
     kind: "handoff_notice",
     roommateName: reassigned.roommateName,
     choreTitle: reassigned.choreTitle,
-    dueDate: reassigned.dueDate
+    dueDate: reassigned.dueDate,
+    contextNote: reassigned.statusNote
   });
   const message = composed.text;
 
@@ -497,9 +498,10 @@ async function sendConversationalReply(params: {
     | "escalation_nudge";
   roommateName: string;
   choreTitle: string;
-  dueDate?: string | null;
-  nextRoommateName?: string | null;
-  deliver?: boolean;
+    dueDate?: string | null;
+    nextRoommateName?: string | null;
+    contextNote?: string | null;
+    deliver?: boolean;
 }) {
   const outboundTo = resolveOutboundWhatsappNumber(params.to);
   const composed = await composeWhatsappConversationMessage({
@@ -507,7 +509,8 @@ async function sendConversationalReply(params: {
     roommateName: params.roommateName,
     choreTitle: params.choreTitle,
     dueDate: params.dueDate,
-    nextRoommateName: params.nextRoommateName
+    nextRoommateName: params.nextRoommateName,
+    contextNote: params.contextNote
   });
   if (params.deliver !== false) {
     await sendWhatsappMessage(params.to, composed.text);
@@ -597,7 +600,11 @@ function handleSkip(
     return { message: `Assignment #${assignmentId} is already ${assignment.status}.` };
   }
 
-  updateAssignmentStatus(assignmentId, "skipped", reason ?? null);
+  updateAssignmentStatus(assignmentId, "skipped", reason ?? null, {
+    resolutionType: "skipped",
+    responsibleRoommateId: assignment.roommateId,
+    strikeApplied: 0
+  });
   addEventLog({
     roommateId: actor.roommateId,
     assignmentId,
@@ -619,13 +626,13 @@ function handleSkip(
   const reassigned = handoffAssignmentToNextRoommate(assignmentId, reason ?? null);
   if (!reassigned) {
     return {
-      message: `Marked #${assignmentId} ${assignment.choreTitle} as skipped, but there was no next roommate available for handoff.`,
+      message: `🙂 Okay, ${assignment.choreTitle} is skipped for this week. I put it at the front of next week's list because nobody was free to swap in.`,
       assignmentId
     };
   }
 
   return notifyAssignmentHandoff(reassigned).then(() => ({
-    message: `🔁 Okay, I handed ${assignment.choreTitle} over to ${reassigned.roommateName}.`,
+    message: `🔁 Okay, I switched ${assignment.choreTitle} over to ${reassigned.roommateName} for this week.`,
     assignmentId
   }));
 }

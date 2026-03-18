@@ -1,10 +1,17 @@
 import { Feather } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 
+import { useHousehold } from "@/src/context/HouseholdContext";
 import { triggerSelectionFeedback } from "@/src/lib/feedback";
 import { colors } from "@/src/theme";
 
 export default function TabsLayout() {
+  const { isAuthenticated } = useHousehold();
+
+  if (!isAuthenticated) {
+    return <Redirect href="/login" />;
+  }
+
   return (
     <Tabs
       screenOptions={{
@@ -74,9 +81,9 @@ export default function TabsLayout() {
           }
         }}
         options={{
-          title: "Admin",
+          title: "Weekly",
           tabBarIcon: ({ color, size }) => (
-            <Feather color={color} name="edit-3" size={size} />
+            <Feather color={color} name="calendar" size={size} />
           ),
         }}
       />

@@ -58,6 +58,10 @@ interface BackendRoommate {
   openPenaltyCount: number;
 }
 
+interface BackendLoginResponse {
+  roommate: BackendRoommate;
+}
+
 interface BackendAssignment {
   id: number;
   choreId: number;
@@ -358,7 +362,9 @@ function mapAssignments(
     return {
       id: String(assignment.id),
       title: assignment.choreTitle,
-      description: assignment.choreDescription ?? "Shared apartment chore",
+      description: assignment.statusNote
+        ? `${assignment.choreDescription ?? "Shared apartment chore"} • ${assignment.statusNote}`
+        : assignment.choreDescription ?? "Shared apartment chore",
       assigneeId: assignee?.id ?? String(assignment.roommateId),
       assignee: assignment.roommateName,
       dueAt,
@@ -625,6 +631,17 @@ export async function fetchHouseholdSnapshot(): Promise<{
   return {
     snapshot: mapBackendSnapshot(rawSnapshot),
     mode: "live"
+  };
+}
+
+export async function loginRoommate(name: string, password: string): Promise<{ roommateId: string }> {
+  const result = await requestJson<BackendLoginResponse>("/api/login", {
+    method: "POST",
+    body: JSON.stringify({ name, password })
+  });
+
+  return {
+    roommateId: String(result.roommate.id)
   };
 }
 
@@ -934,6 +951,25 @@ export async function sendTestReminder(roommate: UiRoommate): Promise<SaveResult
         synced: false,
         notice: `Preview mode: a reminder to ${roommate.name} would be queued now.`
       };
+}
+
+export async function sendAppMessage(
+  roommateId: string,
+  body: string
+): Promise<SaveResult & { message: string }> {
+  const result = await requestJson<{ result: { message: string } }>("/api/app-message", {
+    method: "POST",
+    body: JSON.stringify({
+      roommateId: Number(roommateId),
+      body
+    })
+  });
+
+  return {
+    synced: true,
+    notice: result.result.message,
+    message: result.result.message
+  };
 }
 
 export function buildLocalPenalty(

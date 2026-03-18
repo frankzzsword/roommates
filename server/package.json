@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "seed": "tsx src/db/seed.ts",
+    "reseed:household": "tsx scripts/reseed-household.ts",
     "db:bootstrap-neon": "node scripts/bootstrap-neon.mjs",
     "simulate:whatsapp": "tsx scripts/simulate-whatsapp-flow.ts"
   },

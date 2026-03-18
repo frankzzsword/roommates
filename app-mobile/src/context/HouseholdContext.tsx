@@ -14,12 +14,14 @@ import {
   createPenalty,
   fetchHouseholdSnapshot,
   getPreviewSnapshot,
+  loginRoommate as loginRoommateRequest,
   saveChore,
   saveHouseSettings,
   savePenaltyRule,
   saveReminderPreferences,
   saveRoommate,
   saveTaskTemplate,
+  sendAppMessage as sendAppMessageRequest,
   sendTestReminder
 } from "@/src/lib/api";
 import {
@@ -38,8 +40,12 @@ import type {
 } from "@/src/lib/types";
 
 interface HouseholdContextValue extends HouseholdState {
+  isAuthenticated: boolean;
   activeRoommate: UiRoommate;
   summary: ReturnType<typeof getHouseSummary>;
+  login: (name: string, password: string) => Promise<boolean>;
+  logout: () => void;
+  sendAppMessage: (body: string) => Promise<void>;
   setActiveRoommate: (roommateId: string) => void;
   reload: (options?: { showNotice?: boolean }) => Promise<void>;
   clearSyncNotice: () => void;
@@ -58,6 +64,28 @@ interface HouseholdContextValue extends HouseholdState {
 }
 
 const HouseholdContext = createContext<HouseholdContextValue | null>(null);
+const SESSION_STORAGE_KEY = "roommate-session-roommate-id";
+
+function readStoredRoommateId() {
+  if (typeof localStorage === "undefined") {
+    return null;
+  }
+
+  return localStorage.getItem(SESSION_STORAGE_KEY);
+}
+
+function writeStoredRoommateId(roommateId: string | null) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+
+  if (!roommateId) {
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    return;
+  }
+
+  localStorage.setItem(SESSION_STORAGE_KEY, roommateId);
+}
 
 function sortRoommates(roommates: UiRoommate[]) {
   return [...roommates].sort((left, right) => {
@@ -143,6 +171,27 @@ export function HouseholdProvider({ children }: PropsWithChildren) {
     syncNotice: null
   });
   const [localTaskTemplates, setLocalTaskTemplates] = useState<UiTaskTemplate[]>([]);
+  const [loggedInRoommateId, setLoggedInRoommateId] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    setLoggedInRoommateId(readStoredRoommateId());
+    setAuthReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!authReady || !loggedInRoommateId) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      snapshot: {
+        ...current.snapshot,
+        activeRoommateId: loggedInRoommateId
+      }
+    }));
+  }, [authReady, loggedInRoommateId]);
 
   async function reload(options?: { showNotice?: boolean }) {
     const showNotice = options?.showNotice ?? false;
@@ -157,6 +206,11 @@ export function HouseholdProvider({ children }: PropsWithChildren) {
         ...current,
         snapshot: {
           ...result.snapshot,
+          activeRoommateId:
+            loggedInRoommateId &&
+            result.snapshot.roommates.some((roommate) => roommate.id === loggedInRoommateId)
+              ? loggedInRoommateId
+              : result.snapshot.activeRoommateId,
           taskTemplates: mergeTaskTemplates(result.snapshot.taskTemplates, localTaskTemplates)
         },
         loading: false,
@@ -503,14 +557,67 @@ export function HouseholdProvider({ children }: PropsWithChildren) {
     }
   }
 
-  const activeRoommate = getActiveRoommate(state.snapshot);
+  const activeRoommate =
+    state.snapshot.roommates.find((roommate) => roommate.id === loggedInRoommateId) ??
+    getActiveRoommate(state.snapshot);
   const summary = getHouseSummary(state.snapshot);
 
   const value = useMemo<HouseholdContextValue>(
     () => ({
       ...state,
+      isAuthenticated: authReady && Boolean(loggedInRoommateId),
       activeRoommate,
       summary,
+      login: async (name: string, password: string) => {
+        try {
+          const result = await loginRoommateRequest(name, password);
+          writeStoredRoommateId(result.roommateId);
+          setLoggedInRoommateId(result.roommateId);
+          setState((current) => ({
+            ...current,
+            snapshot: {
+              ...current.snapshot,
+              activeRoommateId: result.roommateId
+            },
+            syncNotice: "Logged in."
+          }));
+          await reload();
+          return true;
+        } catch (error) {
+          setState((current) => ({
+            ...current,
+            syncNotice: getErrorNotice(error, "Login failed.")
+          }));
+          return false;
+        }
+      },
+      logout: () => {
+        writeStoredRoommateId(null);
+        setLoggedInRoommateId(null);
+        setState((current) => ({
+          ...current,
+          syncNotice: "Logged out."
+        }));
+      },
+      sendAppMessage: async (body: string) => {
+        if (!loggedInRoommateId) {
+          return;
+        }
+
+        try {
+          const result = await sendAppMessageRequest(loggedInRoommateId, body);
+          await reload();
+          setState((current) => ({
+            ...current,
+            syncNotice: result.notice ?? result.message
+          }));
+        } catch (error) {
+          setState((current) => ({
+            ...current,
+            syncNotice: getErrorNotice(error, "Unable to send that action right now.")
+          }));
+        }
+      },
       setActiveRoommate: (roommateId: string) =>
         setState((current) => ({
           ...current,
@@ -535,7 +642,7 @@ export function HouseholdProvider({ children }: PropsWithChildren) {
       addPenalty,
       triggerTestReminder
     }),
-    [activeRoommate, state, summary]
+    [activeRoommate, authReady, loggedInRoommateId, state, summary]
   );
 
   return (

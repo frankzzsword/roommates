@@ -3,6 +3,8 @@ import { config } from "../config.js";
 import { rememberLastOutboundAssignment } from "./message-service.js";
 import {
   addEventLog,
+  applyMissedWeeklyStrike,
+  getAssignmentsDueForAutoStrike,
   getAssignmentsDueForCompletionCheck,
   getAssignmentsDueForEscalationNudge,
   getAssignmentsDueForDayOfReminder,
@@ -47,7 +49,8 @@ async function runReminderTick() {
         kind: group.kind,
         roommateName: assignment.roommateName,
         choreTitle: assignment.choreTitle,
-        dueDate: assignment.dueDate
+        dueDate: assignment.dueDate,
+        contextNote: assignment.statusNote
       });
       const message = composed.text;
 
@@ -109,7 +112,8 @@ async function runReminderTick() {
       kind: "completion_check",
       roommateName: assignment.roommateName,
       choreTitle: assignment.choreTitle,
-      dueDate: assignment.dueDate
+      dueDate: assignment.dueDate,
+      contextNote: assignment.statusNote
     });
 
     try {
@@ -147,7 +151,8 @@ async function runReminderTick() {
       kind: "escalation_nudge",
       roommateName: assignment.roommateName,
       choreTitle: assignment.choreTitle,
-      dueDate: assignment.dueDate
+      dueDate: assignment.dueDate,
+      contextNote: assignment.statusNote
     });
 
     try {
@@ -170,6 +175,39 @@ async function runReminderTick() {
         roommateId: assignment.roommateId,
         assignmentId: assignment.id,
         eventType: "FOLLOW_UP_FAILED",
+        payload: JSON.stringify({
+          error: error instanceof Error ? error.message : "unknown"
+        })
+      });
+    }
+  }
+
+  const strikeAssignments = getAssignmentsDueForAutoStrike(now);
+
+  for (const assignment of strikeAssignments) {
+    try {
+      const updated = applyMissedWeeklyStrike(
+        assignment.id,
+        "missed the Friday cleaning window"
+      );
+      if (!updated) {
+        continue;
+      }
+
+      addEventLog({
+        roommateId: updated.roommateId,
+        assignmentId: updated.id,
+        eventType: "AUTO_STRIKE_PROCESSED",
+        payload: JSON.stringify({
+          choreId: updated.choreId,
+          dueDate: updated.dueDate
+        })
+      });
+    } catch (error) {
+      addEventLog({
+        roommateId: assignment.roommateId,
+        assignmentId: assignment.id,
+        eventType: "AUTO_STRIKE_FAILED",
         payload: JSON.stringify({
           error: error instanceof Error ? error.message : "unknown"
         })

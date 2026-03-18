@@ -1,4 +1,3 @@
-import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
@@ -15,6 +14,7 @@ import { colors, radii, spacing } from "@/src/theme";
 export default function SettingsScreen() {
   const {
     activeRoommate,
+    logout,
     reload,
     snapshot,
     syncNotice,
@@ -47,43 +47,48 @@ export default function SettingsScreen() {
     <AppScreen>
       <ScreenHeader
         eyebrow="Settings"
-        title="Tune reminders and house rules"
-        subtitle="Roommates manage their own reminder rhythm here. House-wide labels and automation move to a dedicated full-screen editor."
+        title="Account and reminders"
+        subtitle="This is your own reminder rhythm, your WhatsApp target, and your quick account actions."
       />
 
       <SectionCard
-        title={`Reminder profile for ${activeRoommate.name}`}
-        subtitle={`Direct target: ${activeRoommate.whatsappNumber}`}
+        title={activeRoommate.name}
+        subtitle={activeRoommate.whatsappNumber}
         tone="accent"
       >
+        <Text style={styles.roleLabel}>{activeRoommate.note}</Text>
+        <ActionButton label="Log out" onPress={logout} tone="ghost" />
+      </SectionCard>
+
+      <SectionCard title="My reminder rhythm" subtitle="This controls when the bot nudges you before a task becomes a problem.">
         <ToggleRow
-          description="Allow the bot to DM this person directly."
+          description="Allow direct reminders for this roommate."
           onToggle={() =>
             void updateReminderSettings(activeRoommate.id, {
               personalEnabled: !preferences.personalEnabled
             })
           }
-          title="Direct WhatsApp reminders"
+          title="Direct reminders"
           value={preferences.personalEnabled}
         />
         <ToggleRow
-          description="Send a reminder before the due window starts."
+          description="Send the early heads up before the due window."
           onToggle={() =>
             void updateReminderSettings(activeRoommate.id, {
               dayBefore: !preferences.dayBefore
             })
           }
-          title="Early heads-up"
+          title="Start of week / early heads up"
           value={preferences.dayBefore}
         />
         <ToggleRow
-          description="Escalate when the task is still open after the expected window."
+          description="Send a firmer nudge when something is still open."
           onToggle={() =>
             void updateReminderSettings(activeRoommate.id, {
               escalationEnabled: !preferences.escalationEnabled
             })
           }
-          title="Escalation reminders"
+          title="Escalation messages"
           value={preferences.escalationEnabled}
         />
 
@@ -119,21 +124,14 @@ export default function SettingsScreen() {
           value={scheduleDraft.escalationHours}
         />
 
-        <View style={styles.quietCard}>
-          <Text style={styles.quietTitle}>Quiet hours</Text>
-          <Text style={styles.quietCopy}>
-            {preferences.quietHoursStart} to {preferences.quietHoursEnd}
-          </Text>
-        </View>
-
         <ActionButton
           busy={savingSchedule}
-          label="Save personal rhythm"
+          label="Save my reminder rhythm"
           onPress={() => {
             setSavingSchedule(true);
             const reminderHour = Math.max(0, Math.min(23, Number(scheduleDraft.reminderHour) || 18));
             const reminderLeadHours = Math.max(1, Number(scheduleDraft.reminderLeadHours) || 4);
-            const escalationHours = Math.max(1, Number(scheduleDraft.escalationHours) || 2);
+            const escalationHours = Math.max(1, Number(scheduleDraft.escalationHours) || 12);
 
             void updateReminderSettings(activeRoommate.id, {
               reminderHour,
@@ -148,27 +146,8 @@ export default function SettingsScreen() {
         />
       </SectionCard>
 
-      <SectionCard
-        title="House-wide automation"
-        subtitle="Titles, reminder toggles, and weekly summary behaviour now live behind a dedicated editor screen."
-      >
-        <View style={styles.ruleRow}>
-          <Text style={styles.ruleTitle}>{snapshot.settings.weeklyAchievementLabel}</Text>
-          <Text style={styles.ruleMeta}>weekly title</Text>
-        </View>
-        <View style={styles.ruleRow}>
-          <Text style={styles.ruleTitle}>{snapshot.settings.monthlyAchievementLabel}</Text>
-          <Text style={styles.ruleMeta}>monthly title</Text>
-        </View>
-        <ActionButton
-          label="Open house rules"
-          onPress={() => router.push("/house-rules-editor")}
-          tone="secondary"
-        />
-      </SectionCard>
-
-      <SectionCard title="Connection" subtitle="Use this to verify the app is actually reading your backend." tone="warning">
-        <Text style={styles.connectionTitle}>{getApiBaseUrl() || "No API URL configured"}</Text>
+      <SectionCard title="Connection" subtitle="The web app and WhatsApp both talk to the same live backend.">
+        <Text style={styles.connectionTitle}>{getApiBaseUrl()}</Text>
         <Text style={styles.connectionMeta}>{syncNotice ?? snapshot.lastSyncLabel}</Text>
         <ActionButton
           busy={refreshing}
@@ -187,45 +166,17 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
+  roleLabel: {
+    color: colors.muted,
+    fontSize: 14,
+    lineHeight: 20
+  },
   inlineInputs: {
     flexDirection: "row",
     gap: spacing.md
   },
   inlineInput: {
     flex: 1
-  },
-  quietCard: {
-    backgroundColor: colors.surfaceStrong,
-    borderRadius: radii.lg,
-    padding: spacing.md
-  },
-  quietTitle: {
-    color: colors.ink,
-    fontSize: 13,
-    fontWeight: "800",
-    marginBottom: 4,
-    textTransform: "uppercase"
-  },
-  quietCopy: {
-    color: colors.muted,
-    fontSize: 14
-  },
-  ruleRow: {
-    backgroundColor: colors.white,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    padding: spacing.md
-  },
-  ruleTitle: {
-    color: colors.ink,
-    fontSize: 16,
-    fontWeight: "900"
-  },
-  ruleMeta: {
-    color: colors.muted,
-    fontSize: 13,
-    marginTop: 4
   },
   connectionTitle: {
     color: colors.ink,
@@ -234,7 +185,6 @@ const styles = StyleSheet.create({
   },
   connectionMeta: {
     color: colors.muted,
-    fontSize: 13,
-    lineHeight: 18
+    fontSize: 13
   }
 });

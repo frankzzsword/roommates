@@ -252,6 +252,34 @@ export function findRoommateByWhatsappNumber(
   return row ?? null;
 }
 
+export function findRoommateByCredentials(name: string, loginPassword: string) {
+  const row = db
+    .prepare(
+      `
+      SELECT
+        id,
+        name,
+        whatsapp_number as whatsappNumber,
+        is_active as isActive,
+        sort_order as sortOrder,
+        reminder_enabled as reminderEnabled,
+        reminder_hour as reminderHour,
+        reminder_lead_minutes as reminderLeadMinutes,
+        notes,
+        penalty_balance_cents as penaltyBalanceCents,
+        created_at as createdAt,
+        updated_at as updatedAt
+      FROM roommates
+      WHERE LOWER(name) = LOWER(?)
+        AND login_password = ?
+      LIMIT 1
+    `
+    )
+    .get(name, loginPassword) as Roommate | undefined;
+
+  return row ?? null;
+}
+
 export function getRoommateById(id: number) {
   const row = db
     .prepare(
@@ -297,7 +325,12 @@ export function listRoommates(): RoommateSummary[] {
         roommates.updated_at as updatedAt,
         COUNT(DISTINCT CASE WHEN assignments.status = 'pending' THEN assignments.id END) as pendingCount,
         COUNT(DISTINCT CASE WHEN assignments.status = 'done' THEN assignments.id END) as completedCount,
-        COUNT(DISTINCT CASE WHEN assignments.status = 'skipped' THEN assignments.id END) as skippedCount,
+        COUNT(
+          DISTINCT CASE
+            WHEN assignments.status = 'skipped' AND COALESCE(assignments.strike_applied, 0) > 0
+              THEN assignments.id
+          END
+        ) as skippedCount,
         COUNT(DISTINCT CASE WHEN penalties.status = 'open' THEN penalties.id END) as openPenaltyCount
       FROM roommates
       LEFT JOIN assignments ON assignments.roommate_id = roommates.id
@@ -312,6 +345,7 @@ export function listRoommates(): RoommateSummary[] {
 export function createRoommate(input: {
   name: string;
   whatsappNumber: string;
+  loginPassword?: string;
   isActive?: number;
   sortOrder?: number;
   reminderEnabled?: number;
@@ -328,6 +362,7 @@ export function createRoommate(input: {
       INSERT INTO roommates (
         name,
         whatsapp_number,
+        login_password,
         is_active,
         sort_order,
         reminder_enabled,
@@ -340,6 +375,7 @@ export function createRoommate(input: {
       VALUES (
         @name,
         @whatsappNumber,
+        @loginPassword,
         @isActive,
         @sortOrder,
         @reminderEnabled,
@@ -354,6 +390,7 @@ export function createRoommate(input: {
     .run({
       name: input.name,
       whatsappNumber: input.whatsappNumber,
+      loginPassword: input.loginPassword ?? `${input.name.toLowerCase()}123`,
       isActive: input.isActive ?? 1,
       sortOrder: input.sortOrder ?? maxSortOrderRow.maxSortOrder + 1,
       reminderEnabled: input.reminderEnabled ?? 1,
@@ -370,6 +407,7 @@ export function updateRoommate(
   input: {
     name?: string;
     whatsappNumber?: string;
+    loginPassword?: string;
     isActive?: number;
     sortOrder?: number;
     reminderEnabled?: number;
@@ -381,6 +419,7 @@ export function updateRoommate(
   patchRecord("roommates", id, {
     name: input.name,
     whatsapp_number: input.whatsappNumber,
+    login_password: input.loginPassword,
     is_active: input.isActive,
     sort_order: input.sortOrder,
     reminder_enabled: input.reminderEnabled,
@@ -1001,7 +1040,11 @@ export function recalculatePenaltyBalance(roommateId: number) {
 }
 
 function maybeCreatePenaltyForAssignment(assignment: Assignment, reason: string | null) {
-  if (assignment.status !== "skipped" || assignment.penaltyRuleId === null) {
+  if (
+    assignment.status !== "skipped" ||
+    assignment.penaltyRuleId === null ||
+    assignment.strikeApplied <= 0
+  ) {
     return;
   }
 
@@ -1095,6 +1138,88 @@ function setChoreDefaultAssignee(choreId: number, roommateId: number) {
   });
 }
 
+function findStandbyRoommateForFixedAssignment(assignment: Assignment) {
+  const row = db
+    .prepare(
+      `
+      SELECT
+        roommates.id,
+        roommates.name,
+        roommates.whatsapp_number as whatsappNumber,
+        roommates.is_active as isActive,
+        roommates.sort_order as sortOrder,
+        roommates.reminder_enabled as reminderEnabled,
+        roommates.reminder_hour as reminderHour,
+        roommates.reminder_lead_minutes as reminderLeadMinutes,
+        roommates.notes,
+        roommates.penalty_balance_cents as penaltyBalanceCents,
+        roommates.created_at as createdAt,
+        roommates.updated_at as updatedAt
+      FROM roommates
+      WHERE roommates.is_active = 1
+        AND roommates.id <> @currentRoommateId
+        AND NOT EXISTS (
+          SELECT 1
+          FROM assignments
+          INNER JOIN chores ON chores.id = assignments.chore_id
+          WHERE assignments.roommate_id = roommates.id
+            AND assignments.due_date = @dueDate
+            AND chores.task_mode = 'fixed_schedule'
+        )
+      ORDER BY roommates.sort_order ASC, roommates.name ASC
+      LIMIT 1
+    `
+    )
+    .get({
+      currentRoommateId: assignment.roommateId,
+      dueDate: assignment.dueDate
+    }) as Roommate | undefined;
+
+  return row ?? null;
+}
+
+function markNextFixedAssignmentPriority(assignment: Assignment) {
+  const nextAssignment = db
+    .prepare(
+      `
+      SELECT id
+      FROM assignments
+      WHERE chore_id = ?
+        AND due_date > ?
+        AND status = 'pending'
+      ORDER BY due_date ASC, id ASC
+      LIMIT 1
+    `
+    )
+    .get(assignment.choreId, assignment.dueDate) as { id: number } | undefined;
+
+  if (!nextAssignment?.id) {
+    return;
+  }
+
+  const existing = getAssignmentById(nextAssignment.id);
+  const carryOverNote = `carry over priority from ${assignment.roommateName}`;
+  const mergedNote = existing?.statusNote
+    ? `${existing.statusNote}; ${carryOverNote}`
+    : carryOverNote;
+
+  patchRecord("assignments", nextAssignment.id, {
+    status_note: mergedNote
+  });
+
+  addEventLog({
+    roommateId: existing?.roommateId ?? null,
+    assignmentId: nextAssignment.id,
+    eventType: "CARRY_OVER_PRIORITY_SET",
+    payload: JSON.stringify({
+      sourceAssignmentId: assignment.id,
+      choreId: assignment.choreId,
+      missedByRoommateId: assignment.roommateId,
+      missedByRoommateName: assignment.roommateName
+    })
+  });
+}
+
 function advanceChoreRotation(assignment: Assignment) {
   if (assignment.status !== "done" && assignment.status !== "skipped") {
     return;
@@ -1102,6 +1227,10 @@ function advanceChoreRotation(assignment: Assignment) {
 
   const chore = getChoreById(assignment.choreId);
   if (!chore) {
+    return;
+  }
+
+  if (chore.taskMode === "fixed_schedule") {
     return;
   }
 
@@ -1271,8 +1400,26 @@ export function handoffAssignmentToNextRoommate(
     return null;
   }
 
-  const nextRoommate = getNextRoommateInRotation(assignment.roommateId);
+  const chore = getChoreById(assignment.choreId);
+  const nextRoommate =
+    chore?.taskMode === "fixed_schedule"
+      ? findStandbyRoommateForFixedAssignment(assignment)
+      : getNextRoommateInRotation(assignment.roommateId);
+
   if (!nextRoommate || nextRoommate.id === assignment.roommateId) {
+    if (chore?.taskMode === "fixed_schedule") {
+      markNextFixedAssignmentPriority(assignment);
+      addEventLog({
+        roommateId: assignment.roommateId,
+        assignmentId,
+        eventType: "ASSIGNMENT_CARRY_OVER",
+        payload: JSON.stringify({
+          choreId: assignment.choreId,
+          dueDate: assignment.dueDate,
+          reason
+        })
+      });
+    }
     return null;
   }
 
@@ -1305,7 +1452,10 @@ export function handoffAssignmentToNextRoommate(
   addEventLog({
     roommateId: nextRoommate.id,
     assignmentId: reassigned?.id ?? null,
-    eventType: "ASSIGNMENT_HANDOFF_CREATED",
+    eventType:
+      chore?.taskMode === "fixed_schedule"
+        ? "ASSIGNMENT_SWAPPED_TO_STANDBY"
+        : "ASSIGNMENT_HANDOFF_CREATED",
     payload: JSON.stringify({
       originalAssignmentId: assignmentId,
       choreId: assignment.choreId,
@@ -1316,6 +1466,50 @@ export function handoffAssignmentToNextRoommate(
   });
 
   return reassigned;
+}
+
+export function getAssignmentsDueForAutoStrike(now: Date): Assignment[] {
+  return listAllPendingAssignments().filter((assignment) => {
+    if (assignment.taskMode !== "fixed_schedule") {
+      return false;
+    }
+
+    const dueHour = assignment.roommateReminderHour || assignment.defaultDueHour || 20;
+    const dueAt = new Date(`${assignment.dueDate}T${String(dueHour).padStart(2, "0")}:00:00`);
+    const strikeAt = new Date(dueAt.getTime() + 12 * 60 * 60 * 1000);
+
+    return now >= strikeAt;
+  });
+}
+
+export function applyMissedWeeklyStrike(assignmentId: number, note?: string | null) {
+  const assignment = getAssignmentById(assignmentId);
+  if (!assignment || assignment.status !== "pending" || assignment.taskMode !== "fixed_schedule") {
+    return null;
+  }
+
+  updateAssignmentStatus(assignmentId, "skipped", note ?? "missed weekly cleaning window", {
+    resolutionType: "skipped",
+    responsibleRoommateId: assignment.roommateId,
+    strikeApplied: 1,
+    escalationLevel: Math.max(assignment.escalationLevel, 2)
+  });
+
+  const updated = getAssignmentById(assignmentId);
+  if (updated) {
+    markNextFixedAssignmentPriority(updated);
+    addEventLog({
+      roommateId: updated.roommateId,
+      assignmentId,
+      eventType: "WEEKLY_STRIKE_APPLIED",
+      payload: JSON.stringify({
+        choreId: updated.choreId,
+        dueDate: updated.dueDate
+      })
+    });
+  }
+
+  return updated;
 }
 
 export function updateAssignment(

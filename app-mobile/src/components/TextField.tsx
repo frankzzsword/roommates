@@ -10,6 +10,7 @@ export function TextField({
   multiline = false,
   onChangeText,
   placeholder,
+  secureTextEntry = false,
   value
 }: {
   label: string;
@@ -17,6 +18,7 @@ export function TextField({
   multiline?: boolean;
   onChangeText: (value: string) => void;
   placeholder?: string;
+  secureTextEntry?: boolean;
   value: string;
 }) {
   const [focused, setFocused] = useState(false);
@@ -35,6 +37,7 @@ export function TextField({
         multiline={multiline}
         placeholder={placeholder}
         placeholderTextColor={colors.muted}
+        secureTextEntry={secureTextEntry}
         style={[
           styles.input,
           multiline ? styles.multiline : null,

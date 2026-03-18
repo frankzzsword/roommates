@@ -54,6 +54,7 @@ export function initializeDatabase() {
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       whatsapp_number TEXT NOT NULL UNIQUE,
+      login_password TEXT NOT NULL DEFAULT '',
       is_active INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
       reminder_enabled INTEGER NOT NULL DEFAULT 1,
@@ -158,6 +159,7 @@ export function initializeDatabase() {
     );
 
     ALTER TABLE roommates ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE roommates ADD COLUMN IF NOT EXISTS login_password TEXT NOT NULL DEFAULT '';
     ALTER TABLE roommates ADD COLUMN IF NOT EXISTS reminder_enabled INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE roommates ADD COLUMN IF NOT EXISTS reminder_hour INTEGER NOT NULL DEFAULT 18;
     ALTER TABLE roommates ADD COLUMN IF NOT EXISTS reminder_lead_minutes INTEGER NOT NULL DEFAULT 120;

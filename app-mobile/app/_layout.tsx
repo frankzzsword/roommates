@@ -10,6 +10,7 @@ export default function RootLayout() {
     <HouseholdProvider>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="login" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen
           name="task-editor"

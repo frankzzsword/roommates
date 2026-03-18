@@ -1,70 +1,44 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { ActionButton } from "@/src/components/ActionButton";
 import { AppScreen } from "@/src/components/Screen";
 import { MetricCard } from "@/src/components/MetricCard";
-import { ModeBanner } from "@/src/components/ModeBanner";
-import { RoommateSwitcher } from "@/src/components/RoommateSwitcher";
 import { ScreenHeader } from "@/src/components/ScreenHeader";
 import { SectionCard } from "@/src/components/SectionCard";
-import { getRoommateAssignments, getScoreboard } from "@/src/data/mock";
 import { useHousehold } from "@/src/context/HouseholdContext";
+import { getScoreboard } from "@/src/data/mock";
 import { getTaskBadge, getTaskHeadline, getTaskTone } from "@/src/lib/task-presentation";
 import { colors, radii, spacing } from "@/src/theme";
 
 export default function HomeScreen() {
-  const {
-    activeRoommate,
-    mode,
-    reload,
-    setActiveRoommate,
-    snapshot,
-    summary,
-    syncNotice
-  } = useHousehold();
-  const [refreshing, setRefreshing] = useState(false);
+  const { activeRoommate, snapshot, summary, syncNotice } = useHousehold();
 
-  const myTasks = getRoommateAssignments(snapshot, activeRoommate.id);
+  const myOpenTasks = snapshot.chores.filter(
+    (task) => task.assigneeId === activeRoommate.id && (task.status === "pending" || task.status === "overdue")
+  );
   const spotlightTask =
-    myTasks.find((task) => task.accountabilityState === "escalated") ??
-    myTasks.find((task) => task.status === "overdue") ??
-    myTasks.find((task) => task.accountabilityState === "reminder_sent") ??
-    myTasks[0];
+    myOpenTasks.find((task) => task.accountabilityState === "escalated") ??
+    myOpenTasks.find((task) => task.status === "overdue") ??
+    myOpenTasks[0];
   const scoreboard = useMemo(() => getScoreboard(snapshot), [snapshot]);
   const leader = scoreboard[0];
+  const myEntry = scoreboard.find((entry) => entry.roommateId === activeRoommate.id);
 
   return (
     <AppScreen>
       <ScreenHeader
-        eyebrow="House status"
-        title={snapshot.houseName}
-        subtitle="Everyone can see the pressure points, the rescues, and who is actually carrying the flat this week."
+        eyebrow="My house view"
+        title={`Welcome back, ${activeRoommate.name}`}
+        subtitle="This is your own dashboard now: your tasks, your standing, and what the flat needs this week."
       />
-
-      <ModeBanner
-        message={
-          syncNotice ??
-          snapshot.lastSyncLabel ??
-          (mode === "preview" ? "Preview mode" : "Live state connected")
-        }
-        mode={mode}
-      />
-
-      <SectionCard title="View the app as" subtitle="Switch perspective to any roommate instantly." tone="accent">
-        <RoommateSwitcher
-          activeRoommateId={activeRoommate.id}
-          onSelect={setActiveRoommate}
-          roommates={snapshot.roommates}
-        />
-      </SectionCard>
 
       <SectionCard style={styles.heroCard} tone="accent">
         <Text style={styles.heroEyebrow}>Right now</Text>
         <View style={styles.heroRow}>
           <View style={styles.heroCopy}>
-            <Text style={styles.heroName}>{activeRoommate.name}</Text>
-            <Text style={styles.heroNote}>{activeRoommate.note}</Text>
+            <Text style={styles.heroTitle}>{activeRoommate.name}</Text>
+            <Text style={styles.heroSubline}>{activeRoommate.note}</Text>
+            <Text style={styles.heroSubline}>{syncNotice ?? snapshot.lastSyncLabel}</Text>
           </View>
           <View style={styles.heroBadge}>
             <Text style={styles.heroBadgeValue}>{activeRoommate.reliability}%</Text>
@@ -72,124 +46,71 @@ export default function HomeScreen() {
           </View>
         </View>
         {spotlightTask ? (
-          <View style={styles.spotlight}>
+          <View
+            style={[
+              styles.spotlight,
+              getTaskTone(spotlightTask) === "danger"
+                ? styles.spotlightDanger
+                : getTaskTone(spotlightTask) === "warning"
+                  ? styles.spotlightWarning
+                  : styles.spotlightNeutral
+            ]}
+          >
             <View style={styles.spotlightCopy}>
               <Text style={styles.spotlightTitle}>{spotlightTask.title}</Text>
               <Text style={styles.spotlightMeta}>{getTaskHeadline(spotlightTask)}</Text>
             </View>
-            <View
-              style={[
-                styles.spotlightBadge,
-                getTaskTone(spotlightTask) === "danger"
-                  ? styles.spotlightDanger
-                  : getTaskTone(spotlightTask) === "warning"
-                    ? styles.spotlightWarning
-                    : styles.spotlightNeutral
-              ]}
-            >
-              <Text style={styles.spotlightBadgeText}>{getTaskBadge(spotlightTask)}</Text>
-            </View>
+            <Text style={styles.spotlightBadge}>{getTaskBadge(spotlightTask)}</Text>
           </View>
         ) : (
-          <Text style={styles.heroNoTask}>No open tasks. This roommate is clear right now.</Text>
+          <Text style={styles.heroEmpty}>Nothing urgent is on you right now.</Text>
         )}
       </SectionCard>
 
       <View style={styles.metricRow}>
-        <MetricCard label="Urgent now" tone="danger" value={summary.overdueCount} />
-        <MetricCard label="Rescues logged" tone="warning" value={summary.rescuedCount} />
+        <MetricCard label="My open tasks" value={myOpenTasks.length} />
+        <MetricCard label="House overdue" tone="danger" value={summary.overdueCount} />
       </View>
       <View style={styles.metricRow}>
-        <MetricCard label="Pending" value={summary.pendingCount} />
-        <MetricCard label="House strikes" tone="warning" value={summary.strikeCount} />
+        <MetricCard label="My strikes" tone="warning" value={activeRoommate.strikeCount} />
+        <MetricCard label="My rescues" tone="success" value={activeRoommate.rescueCount} />
       </View>
 
       <SectionCard
+        title="My momentum"
+        subtitle="This is the mix of completed turns, rescues, and strikes shaping your standing."
+      >
+        {myEntry ? (
+          <View style={styles.personalCard}>
+            <Text style={styles.personalTitle}>{myEntry.achievementSummary}</Text>
+            <Text style={styles.personalMeta}>
+              {myEntry.weeklyScore} weekly • {myEntry.monthlyScore} monthly • {myEntry.totalScore} total
+            </Text>
+            <Text style={styles.personalMeta}>
+              {myEntry.completedCount} done • {myEntry.rescueCount} rescues • {myEntry.strikeCount} strikes
+            </Text>
+          </View>
+        ) : (
+          <Text style={styles.heroEmpty}>Your score will show up once tasks start moving.</Text>
+        )}
+      </SectionCard>
+
+      <SectionCard
         title="Who is carrying the week"
-        subtitle={`${snapshot.settings.weeklyAchievementLabel}: ${summary.weeklyChampion} • ${snapshot.settings.monthlyAchievementLabel}: ${summary.monthlyChampion}`}
+        subtitle={`${snapshot.settings.weeklyAchievementLabel}: ${summary.weeklyChampion}`}
         tone="success"
       >
         {leader ? (
           <View style={styles.leaderRow}>
             <View style={styles.leaderCopy}>
-              <Text style={styles.leaderTitle}>{leader.roommateName}</Text>
+              <Text style={styles.leaderName}>{leader.roommateName}</Text>
               <Text style={styles.leaderMeta}>
-                {leader.weeklyScore} weekly • {leader.monthlyScore} monthly • {leader.rescueCount} rescues
+                {leader.weeklyScore} weekly • {leader.rescueCount} rescues • {leader.streak} streak
               </Text>
-              <Text style={styles.leaderSummary}>{leader.achievementSummary}</Text>
             </View>
             <Text style={styles.leaderScore}>{leader.totalScore}</Text>
           </View>
         ) : null}
-      </SectionCard>
-
-      <SectionCard
-        title={`Pressure points for ${activeRoommate.name}`}
-        subtitle="Urgency is visual now: reminders, escalations, rescues, and clean completions all read differently."
-      >
-        {myTasks.map((task) => (
-          <View key={task.id} style={styles.taskRow}>
-            <View style={styles.taskCopy}>
-              <Text style={styles.taskTitle}>{task.title}</Text>
-              <Text style={styles.taskMeta}>
-                {task.area} • {task.cadence} • {task.points} pts
-              </Text>
-              <Text style={styles.taskSubMeta}>{getTaskHeadline(task)}</Text>
-            </View>
-            <View
-              style={[
-                styles.taskBadge,
-                getTaskTone(task) === "danger"
-                  ? styles.taskBadgeDanger
-                  : getTaskTone(task) === "warning"
-                    ? styles.taskBadgeWarning
-                    : getTaskTone(task) === "success"
-                      ? styles.taskBadgeSuccess
-                      : getTaskTone(task) === "accent"
-                        ? styles.taskBadgeAccent
-                        : styles.taskBadgeNeutral
-              ]}
-            >
-              <Text style={styles.taskBadgeText}>{getTaskBadge(task)}</Text>
-            </View>
-          </View>
-        ))}
-      </SectionCard>
-
-      <SectionCard title="Live feed" subtitle="This is where reminder sends, rescues, and misses become public." tone="warning">
-        {snapshot.activity.slice(0, 4).map((entry) => (
-          <View key={entry.id} style={styles.activityRow}>
-            <View
-              style={[
-                styles.activityDot,
-                entry.type === "completed"
-                  ? styles.activitySuccess
-                  : entry.type === "rescue"
-                    ? styles.activityAccent
-                    : entry.type === "escalation" || entry.type === "missed"
-                      ? styles.activityDanger
-                      : styles.activityNeutral
-              ]}
-            />
-            <View style={styles.activityCopy}>
-              <Text style={styles.activityTitle}>{entry.title}</Text>
-              <Text style={styles.activityMeta}>
-                {entry.actor} • {entry.timestamp}
-              </Text>
-            </View>
-          </View>
-        ))}
-        <ActionButton
-          busy={refreshing}
-          label="Refresh live state"
-          onPress={() => {
-            setRefreshing(true);
-            void reload({ showNotice: true }).finally(() => {
-              setRefreshing(false);
-            });
-          }}
-          tone="secondary"
-        />
       </SectionCard>
     </AppScreen>
   );
@@ -203,7 +124,6 @@ const styles = StyleSheet.create({
     color: "#d7e2ff",
     fontSize: 12,
     fontWeight: "800",
-    letterSpacing: 0.8,
     textTransform: "uppercase"
   },
   heroRow: {
@@ -215,22 +135,22 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6
   },
-  heroName: {
+  heroTitle: {
     color: colors.white,
     fontSize: 34,
     fontWeight: "900"
   },
-  heroNote: {
+  heroSubline: {
     color: "#d7e2ff",
-    fontSize: 15,
-    lineHeight: 22
+    fontSize: 14,
+    lineHeight: 20
   },
   heroBadge: {
     alignItems: "center",
     backgroundColor: colors.warning,
     borderRadius: radii.lg,
     justifyContent: "center",
-    minWidth: 100,
+    minWidth: 104,
     paddingHorizontal: spacing.md
   },
   heroBadgeValue: {
@@ -244,12 +164,19 @@ const styles = StyleSheet.create({
     fontWeight: "800"
   },
   spotlight: {
-    alignItems: "center",
-    backgroundColor: "#1b2340",
     borderRadius: radii.lg,
     flexDirection: "row",
     gap: spacing.md,
     padding: spacing.md
+  },
+  spotlightNeutral: {
+    backgroundColor: "#1b2340"
+  },
+  spotlightWarning: {
+    backgroundColor: "#4a2f00"
+  },
+  spotlightDanger: {
+    backgroundColor: "#4c1120"
   },
   spotlightCopy: {
     flex: 1,
@@ -266,31 +193,34 @@ const styles = StyleSheet.create({
     lineHeight: 20
   },
   spotlightBadge: {
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs
-  },
-  spotlightNeutral: {
-    backgroundColor: colors.surfaceStrong
-  },
-  spotlightDanger: {
-    backgroundColor: colors.danger
-  },
-  spotlightWarning: {
-    backgroundColor: colors.warning
-  },
-  spotlightBadgeText: {
     color: colors.white,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "900"
   },
-  heroNoTask: {
+  heroEmpty: {
     color: "#d7e2ff",
-    fontSize: 15
+    fontSize: 14
   },
   metricRow: {
     flexDirection: "row",
     gap: spacing.md
+  },
+  personalCard: {
+    backgroundColor: colors.white,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    gap: 4,
+    padding: spacing.md
+  },
+  personalTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  personalMeta: {
+    color: colors.muted,
+    fontSize: 13
   },
   leaderRow: {
     alignItems: "center",
@@ -299,14 +229,13 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: "row",
-    gap: spacing.md,
+    justifyContent: "space-between",
     padding: spacing.md
   },
   leaderCopy: {
-    flex: 1,
     gap: 4
   },
-  leaderTitle: {
+  leaderName: {
     color: colors.ink,
     fontSize: 18,
     fontWeight: "900"
@@ -315,102 +244,9 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13
   },
-  leaderSummary: {
-    color: colors.success,
-    fontSize: 13,
-    fontWeight: "800"
-  },
   leaderScore: {
     color: colors.ink,
     fontSize: 30,
     fontWeight: "900"
-  },
-  taskRow: {
-    alignItems: "center",
-    backgroundColor: colors.white,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.md,
-    padding: spacing.md
-  },
-  taskCopy: {
-    flex: 1,
-    gap: 4
-  },
-  taskTitle: {
-    color: colors.ink,
-    fontSize: 17,
-    fontWeight: "900"
-  },
-  taskMeta: {
-    color: colors.muted,
-    fontSize: 13
-  },
-  taskSubMeta: {
-    color: colors.ink,
-    fontSize: 14,
-    lineHeight: 20
-  },
-  taskBadge: {
-    borderRadius: radii.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs
-  },
-  taskBadgeNeutral: {
-    backgroundColor: colors.surfaceStrong
-  },
-  taskBadgeAccent: {
-    backgroundColor: colors.accent
-  },
-  taskBadgeSuccess: {
-    backgroundColor: colors.success
-  },
-  taskBadgeWarning: {
-    backgroundColor: colors.warning
-  },
-  taskBadgeDanger: {
-    backgroundColor: colors.danger
-  },
-  taskBadgeText: {
-    color: colors.white,
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  activityRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md
-  },
-  activityDot: {
-    borderRadius: radii.pill,
-    height: 14,
-    width: 14
-  },
-  activitySuccess: {
-    backgroundColor: colors.success
-  },
-  activityAccent: {
-    backgroundColor: colors.accent
-  },
-  activityDanger: {
-    backgroundColor: colors.danger
-  },
-  activityNeutral: {
-    backgroundColor: colors.border
-  },
-  activityCopy: {
-    flex: 1,
-    gap: 3
-  },
-  activityTitle: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: "800"
-  },
-  activityMeta: {
-    color: colors.muted,
-    fontSize: 13
   }
 });
