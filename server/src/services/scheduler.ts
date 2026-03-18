@@ -217,9 +217,13 @@ async function runReminderTick() {
 }
 
 export function startScheduler() {
-  void runReminderTick();
-
   const everyFiveMinutes = 5 * 60 * 1000;
+  const initialDelay = 15 * 1000;
+
+  setTimeout(() => {
+    void runReminderTick();
+  }, initialDelay);
+
   setInterval(() => {
     void runReminderTick();
   }, everyFiveMinutes);
