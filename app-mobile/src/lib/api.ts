@@ -20,7 +20,9 @@ import type {
   UiTaskTemplate
 } from "@/src/lib/types";
 
-const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
+const defaultApiBaseUrl = "https://roommates-yoh0.onrender.com";
+const apiBaseUrl =
+  process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? defaultApiBaseUrl;
 const currency = "EUR";
 
 interface BackendHouseSettings {
