@@ -379,7 +379,12 @@ function heuristicWhatsappIntent(body: string): AiWhatsappIntent {
     return { action: "STATUS", assignmentId, reason: null };
   }
 
-  if (/^rescue\b/i.test(normalized) || lowered.includes("i did it for")) {
+  if (
+    /^rescue\b/i.test(normalized) ||
+    lowered.includes("i did it for") ||
+    /\bfor (him|her|them)\b/.test(lowered) ||
+    /\b[a-z]+['’]s\b/.test(lowered)
+  ) {
     return { action: "RESCUE", assignmentId, reason: null };
   }
 
@@ -413,6 +418,12 @@ function heuristicWhatsappIntent(body: string): AiWhatsappIntent {
     /^done\b/i.test(normalized) ||
     /^finished\b/i.test(normalized) ||
     /^completed\b/i.test(normalized) ||
+    lowered.includes("finished the") ||
+    lowered.includes("finished my") ||
+    lowered.includes("cleaned the") ||
+    lowered.includes("took out the") ||
+    lowered.includes("handled the") ||
+    lowered.includes("sorted the") ||
     lowered.includes("i did it") ||
     lowered.includes("it's done") ||
     lowered.includes("it is done")
@@ -485,6 +496,8 @@ Rules:
 - If the user says skip without handoff language, use SKIP.
 - If the message is generic and there is a last referenced assignment id, use it.
 - Only assign an assignmentId that appears in the pending assignments list, unless there is exactly one obvious pending item and the user is clearly referring to it.
+- Natural language is the primary interface. Messages like "I finished the kitchen", "I did Noah's trash", or "I can't do bathroom today, pass it on" should map to a concrete action whenever the pending list makes that obvious.
+- Prefer matching by chore title or roommate name instead of returning UNKNOWN.
 - reason should be a short plain text reason or null.
     `);
 

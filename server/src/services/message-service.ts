@@ -19,6 +19,49 @@ import {
 } from "./twilio-service.js";
 
 const lastOutboundAssignmentByWhatsapp = new Map<string, number>();
+const MATCH_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "have",
+  "just",
+  "from",
+  "into",
+  "your",
+  "my",
+  "our",
+  "his",
+  "her",
+  "their",
+  "today",
+  "right",
+  "now",
+  "already",
+  "really",
+  "about",
+  "around",
+  "task",
+  "chore",
+  "please",
+  "cant",
+  "cannot",
+  "dont",
+  "didnt",
+  "skip",
+  "done",
+  "finish",
+  "finished",
+  "completed",
+  "rescue",
+  "rescued",
+  "help",
+  "status",
+  "tasks"
+]);
+type ActionableIntentAction = "DONE" | "SKIP" | "SKIP_REASSIGN" | "RESCUE";
 
 function normalizeBody(body: string) {
   return body.trim().replace(/\s+/g, " ");
@@ -26,18 +69,221 @@ function normalizeBody(body: string) {
 
 function buildHelpMessage() {
   return [
-    "Commands:",
-    "HELP - show this help",
-    "TASKS - your pending chores",
-    "STATUS - house summary",
-    "DONE [id] - mark a chore complete",
-    "SKIP [id] [reason] - mark a chore skipped",
-    "RESCUE [id] - close someone else's overdue or escalated chore",
+    "Just reply in plain English:",
+    '"I finished the kitchen"',
+    '"I can\'t do trash today, pass it on"',
+    '"I did Noah\'s trash for him"',
     "",
-    "Natural language also works:",
-    "\"I can't do it today, skip\"",
-    "\"Done with bathroom\"",
-    "\"Rescue 3\""
+    "Fallback commands still work:",
+    "TASKS - show open chores",
+    "STATUS - show house summary",
+    "DONE [id]",
+    "SKIP [id] [reason]",
+    "RESCUE [id]"
+  ].join("\n");
+}
+
+function normalizeMatchText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function tokenizeMatchText(value: string) {
+  return normalizeMatchText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(
+      (token) => token.length > 2 && !MATCH_STOP_WORDS.has(token)
+    );
+}
+
+function isGenericAssignmentReference(body: string) {
+  const lowered = normalizeMatchText(body);
+  return (
+    /^(done|finished|completed|skip|rescued?|tasks?|status|help)\b/.test(lowered) ||
+    lowered.includes("i did it") ||
+    lowered.includes("it s done") ||
+    lowered.includes("its done") ||
+    lowered.includes("it is done") ||
+    lowered.includes("can t do it") ||
+    lowered.includes("cant do it") ||
+    lowered.includes("cannot do it") ||
+    lowered.includes("pass it on") ||
+    lowered.includes("give it to the next")
+  );
+}
+
+function scoreAssignmentMatch(
+  body: string,
+  assignment: {
+    id: number;
+    choreTitle: string;
+    roommateName: string;
+  }
+) {
+  const normalizedBody = normalizeMatchText(body);
+  const bodyTokens = new Set(tokenizeMatchText(body));
+  let score = 0;
+
+  const normalizedTitle = normalizeMatchText(assignment.choreTitle);
+  const normalizedRoommate = normalizeMatchText(assignment.roommateName);
+
+  if (normalizedTitle && normalizedBody.includes(normalizedTitle)) {
+    score += 12;
+  }
+
+  if (normalizedRoommate && normalizedBody.includes(normalizedRoommate)) {
+    score += 8;
+  }
+
+  for (const token of new Set(tokenizeMatchText(assignment.choreTitle))) {
+    if (bodyTokens.has(token)) {
+      score += 3;
+    }
+  }
+
+  for (const token of new Set(tokenizeMatchText(assignment.roommateName))) {
+    if (bodyTokens.has(token)) {
+      score += 4;
+    }
+  }
+
+  if (
+    normalizedBody.includes("for him") ||
+    normalizedBody.includes("for her") ||
+    normalizedBody.includes("for them")
+  ) {
+    score += 1;
+  }
+
+  return score;
+}
+
+function resolveAssignmentFromContext(input: {
+  body: string;
+  action: "DONE" | "SKIP" | "SKIP_REASSIGN" | "RESCUE";
+  pendingAssignments: Array<{
+    id: number;
+    choreTitle: string;
+    roommateName: string;
+    dueDate: string;
+  }>;
+  lastReferencedAssignmentId: number | null;
+}) {
+  const { body, action, pendingAssignments, lastReferencedAssignmentId } = input;
+
+  if (pendingAssignments.length === 0) {
+    return {
+      assignmentId: null,
+      ambiguous: false
+    };
+  }
+
+  if (pendingAssignments.length === 1) {
+    return {
+      assignmentId: pendingAssignments[0]?.id ?? null,
+      ambiguous: false
+    };
+  }
+
+  if (lastReferencedAssignmentId && isGenericAssignmentReference(body)) {
+    const referenced = pendingAssignments.find(
+      (assignment) => assignment.id === lastReferencedAssignmentId
+    );
+    if (referenced) {
+      return {
+        assignmentId: referenced.id,
+        ambiguous: false
+      };
+    }
+  }
+
+  const scored = pendingAssignments
+    .map((assignment) => ({
+      assignment,
+      score: scoreAssignmentMatch(body, assignment)
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const top = scored[0];
+  const second = scored[1];
+
+  if (
+    top &&
+    (
+      (top.score >= 4 && (!second || top.score >= second.score + 2)) ||
+      (top.score >= 3 && (!second || second.score === 0))
+    )
+  ) {
+    return {
+      assignmentId: top.assignment.id,
+      ambiguous: false
+    };
+  }
+
+  const hasAnySignal = Boolean(top && top.score > 0);
+
+  return {
+    assignmentId: null,
+    ambiguous: hasAnySignal,
+    suggestions: scored
+      .filter((entry) => entry.score > 0)
+      .slice(0, 3)
+      .map((entry) => entry.assignment),
+    action
+  };
+}
+
+function buildClarifyAssignmentMessage(input: {
+  action: "DONE" | "SKIP" | "SKIP_REASSIGN" | "RESCUE";
+  trustedProxy: boolean;
+  pendingAssignments: Array<{
+    id: number;
+    choreTitle: string;
+    roommateName: string;
+    dueDate: string;
+  }>;
+  suggestions?: Array<{
+    id: number;
+    choreTitle: string;
+    roommateName: string;
+    dueDate: string;
+  }>;
+}) {
+  const actionLabel =
+    input.action === "RESCUE"
+      ? "rescue"
+      : input.action === "DONE"
+        ? "mark as done"
+        : "skip";
+  const candidates = (input.suggestions && input.suggestions.length > 0
+    ? input.suggestions
+    : input.pendingAssignments
+  ).slice(0, 3);
+
+  const lines = candidates.map(
+    (assignment) =>
+      `#${assignment.id} ${assignment.roommateName}: ${assignment.choreTitle}`
+  );
+
+  const examples = input.trustedProxy
+    ? [
+        '"I finished Mayssa\'s kitchen task"',
+        '"Skip Varun\'s trash today"',
+        '"I rescued Noah\'s bathroom task"'
+      ]
+    : [
+        '"I finished the kitchen"',
+        '"Skip the trash today"',
+        '"I rescued Noah\'s trash"'
+      ];
+
+  return [
+    `I couldn't tell which chore to ${actionLabel}.`,
+    "Say it with the roommate or task name, for example:",
+    ...examples,
+    "",
+    "Possible open chores:",
+    ...lines
   ].join("\n");
 }
 
@@ -155,10 +401,10 @@ function getPendingAssignmentsForInterpretation(
 async function notifyAssignmentHandoff(reassigned: Assignment) {
   const outboundTo = resolveOutboundWhatsappNumber(reassigned.whatsappNumber);
   const message = [
-    `New handoff: ${reassigned.roommateName} is now up for ${reassigned.choreTitle}.`,
+    `${reassigned.roommateName}, you are now up for ${reassigned.choreTitle}.`,
     `Due date: ${reassigned.dueDate}`,
-    `Reply DONE ${reassigned.id} when finished.`,
-    `If you cannot do it, reply "I can't do it today, skip".`
+    'Reply naturally, for example "I finished it" or "I can\'t do it today, pass it on".',
+    `Fallback: DONE ${reassigned.id} or SKIP ${reassigned.id} <reason>.`
   ].join("\n");
 
   try {
@@ -358,24 +604,54 @@ export async function processInboundMessage(params: {
     };
   }
 
+  const pendingAssignments = getPendingAssignmentsForInterpretation(
+    actor.roommateId,
+    trustedProxy
+  );
   const interpretation = await interpretWhatsappIntentWithAi({
     body: normalized,
     senderName: actorRoommate?.name ?? (trustedProxy ? "Trusted proxy" : null),
     trustedProxy,
     lastReferencedAssignmentId: getLastReferencedAssignmentId(params.from),
-    pendingAssignments: getPendingAssignmentsForInterpretation(actor.roommateId, trustedProxy)
+    pendingAssignments
   });
   const intent = interpretation.intent;
-  const assignmentIdInput = intent.assignmentId ? String(intent.assignmentId) : undefined;
+  const actionableAction: ActionableIntentAction | null =
+    intent.action === "DONE"
+      ? "DONE"
+      : intent.action === "SKIP"
+        ? "SKIP"
+        : intent.action === "SKIP_REASSIGN"
+          ? "SKIP_REASSIGN"
+          : intent.action === "RESCUE"
+            ? "RESCUE"
+            : null;
+  const resolvedAssignment =
+    actionableAction && !intent.assignmentId
+      ? resolveAssignmentFromContext({
+          body: normalized,
+          action: actionableAction,
+          pendingAssignments,
+          lastReferencedAssignmentId: getLastReferencedAssignmentId(params.from)
+        })
+      : {
+          assignmentId: intent.assignmentId,
+          ambiguous: false
+        };
+  const finalAssignmentId = intent.assignmentId ?? resolvedAssignment.assignmentId ?? null;
+  const assignmentIdInput = finalAssignmentId ? String(finalAssignmentId) : undefined;
+  const resolutionSuggestions =
+    "suggestions" in resolvedAssignment ? resolvedAssignment.suggestions : undefined;
 
   addEventLog({
     roommateId: actor.roommateId,
-    assignmentId: intent.assignmentId ?? null,
+    assignmentId: finalAssignmentId,
     eventType: "WHATSAPP_INTENT_INTERPRETED",
     payload: JSON.stringify({
       source: interpretation.source,
       model: interpretation.model,
       action: intent.action,
+      resolvedAssignmentId: finalAssignmentId,
       trustedProxy
     })
   });
@@ -397,31 +673,75 @@ export async function processInboundMessage(params: {
   }
 
   if (intent.action === "DONE") {
-    return handleDone(actor, assignmentIdInput, intent.assignmentId);
+    if (!assignmentIdInput) {
+      return {
+        message: buildClarifyAssignmentMessage({
+          action: intent.action,
+          trustedProxy,
+          pendingAssignments,
+          suggestions: resolutionSuggestions
+        })
+      };
+    }
+
+    return handleDone(actor, assignmentIdInput, finalAssignmentId);
   }
 
   if (intent.action === "SKIP") {
+    if (!assignmentIdInput) {
+      return {
+        message: buildClarifyAssignmentMessage({
+          action: intent.action,
+          trustedProxy,
+          pendingAssignments,
+          suggestions: resolutionSuggestions
+        })
+      };
+    }
+
     return handleSkip(
       actor,
       assignmentIdInput,
       intent.reason ?? undefined,
       false,
-      intent.assignmentId
+      finalAssignmentId
     );
   }
 
   if (intent.action === "SKIP_REASSIGN") {
+    if (!assignmentIdInput) {
+      return {
+        message: buildClarifyAssignmentMessage({
+          action: intent.action,
+          trustedProxy,
+          pendingAssignments,
+          suggestions: resolutionSuggestions
+        })
+      };
+    }
+
     return handleSkip(
       actor,
       assignmentIdInput,
       intent.reason ?? undefined,
       true,
-      intent.assignmentId
+      finalAssignmentId
     );
   }
 
   if (intent.action === "RESCUE") {
-    return handleRescue(actor, assignmentIdInput, intent.assignmentId);
+    if (!assignmentIdInput) {
+      return {
+        message: buildClarifyAssignmentMessage({
+          action: intent.action,
+          trustedProxy,
+          pendingAssignments,
+          suggestions: resolutionSuggestions
+        })
+      };
+    }
+
+    return handleRescue(actor, assignmentIdInput, finalAssignmentId);
   }
 
   return {

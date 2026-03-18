@@ -22,9 +22,8 @@ async function runReminderTick() {
     const message = [
       `Reminder: ${assignment.choreTitle} is coming up.`,
       `Due date: ${assignment.dueDate}`,
-      `Reply DONE ${assignment.id} when finished.`,
-      `Reply SKIP ${assignment.id} <reason> if you cannot do it.`,
-      `Natural language also works: "I can't do it today, skip".`
+      'Reply naturally, for example "I finished it" or "I can\'t do it today, pass it on".',
+      `Fallback: DONE ${assignment.id} or SKIP ${assignment.id} <reason>.`
     ].join("\n");
 
     try {
