@@ -493,7 +493,8 @@ async function sendConversationalReply(params: {
     | "skip_confirmation"
     | "rescue_confirmation"
     | "postpone_confirmation"
-    | "resolution_options";
+    | "resolution_options"
+    | "escalation_nudge";
   roommateName: string;
   choreTitle: string;
   dueDate?: string | null;
@@ -566,7 +567,7 @@ function handleDone(
   });
 
   return {
-    message: `Thanks, I marked ${assignment.choreTitle} as done.`,
+    message: `✅ Nice, I marked ${assignment.choreTitle} as done.`,
     assignmentId
   };
 }
@@ -610,7 +611,7 @@ function handleSkip(
 
   if (!reassignToNext) {
     return {
-      message: `Okay, I marked ${assignment.choreTitle} as skipped.${reason ? ` Reason noted: ${reason}` : ""}`,
+      message: `👌 Okay, I marked ${assignment.choreTitle} as skipped.${reason ? ` Reason noted: ${reason}` : ""}`,
       assignmentId
     };
   }
@@ -624,7 +625,7 @@ function handleSkip(
   }
 
   return notifyAssignmentHandoff(reassigned).then(() => ({
-    message: `Okay, I handed ${assignment.choreTitle} over to ${reassigned.roommateName}.`,
+    message: `🔁 Okay, I handed ${assignment.choreTitle} over to ${reassigned.roommateName}.`,
     assignmentId
   }));
 }
@@ -676,7 +677,7 @@ function handleRescue(
   });
 
   return {
-    message: `Thanks, I marked ${assignment.choreTitle} as rescued. ${assignment.roommateName} still keeps the missed turn on record.`,
+    message: `🛟 Thanks, I marked ${assignment.choreTitle} as rescued. ${assignment.roommateName} still keeps the missed turn on record.`,
     assignmentId
   };
 }
@@ -701,7 +702,8 @@ async function handleConversationalReply(actor: {
 
   if (
     latestPrompt.promptType === "assignment_reminder" ||
-    latestPrompt.promptType === "completion_check"
+    latestPrompt.promptType === "completion_check" ||
+    latestPrompt.promptType === "escalation_nudge"
   ) {
     if (isAffirmativeReply(body)) {
       handleDone(actor, String(assignmentId), assignmentId);

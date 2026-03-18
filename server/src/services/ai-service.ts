@@ -36,6 +36,7 @@ export interface AiWhatsappIntent {
 type WhatsappMessageKind =
   | "assignment_reminder"
   | "completion_check"
+  | "escalation_nudge"
   | "resolution_options"
   | "handoff_notice"
   | "done_confirmation"
@@ -61,6 +62,31 @@ function uniqueModels() {
   );
 }
 
+function getWhatsappMessageRequirements(kind: WhatsappMessageKind) {
+  switch (kind) {
+    case "assignment_reminder":
+      return "Tell them the task is theirs, mention the due timing, and ask them to message back when it is done.";
+    case "completion_check":
+      return "Ask clearly whether they managed to finish it. Tell them to reply yes or no.";
+    case "escalation_nudge":
+      return "Be firmer. Say it is okay to forget once, but it needs sorting soon or it will count as a missed turn or a strike.";
+    case "resolution_options":
+      return "Offer exactly two options in plain language: push it to tomorrow, or assign someone else. Ask them to choose one.";
+    case "handoff_notice":
+      return "Tell them the task was handed to them and ask them to take care of it tonight.";
+    case "done_confirmation":
+      return "Confirm that the task is marked done.";
+    case "skip_confirmation":
+      return "Confirm that the task was skipped or moved to the next roommate.";
+    case "rescue_confirmation":
+      return "Confirm that the task was rescued and that the original missed turn still stays on record.";
+    case "postpone_confirmation":
+      return "Confirm that the task was pushed to tomorrow and stayed with the same roommate.";
+    default:
+      return "Write a clear WhatsApp update.";
+  }
+}
+
 function fallbackWhatsappConversationMessage(input: {
   kind: WhatsappMessageKind;
   roommateName: string;
@@ -72,23 +98,25 @@ function fallbackWhatsappConversationMessage(input: {
 
   switch (input.kind) {
     case "assignment_reminder":
-      return `Hey ${input.roommateName}, you have ${input.choreTitle} duty${duePhrase}. Please finish it when you can and let me know once it's done.`;
+      return `🧹 Hey ${input.roommateName}, you’ve got ${input.choreTitle}${duePhrase}. Please get it done and message me once it’s sorted.`;
     case "completion_check":
-      return `Hey ${input.roommateName}, were you able to finish ${input.choreTitle}? Just reply yes or no.`;
+      return `👀 Hey ${input.roommateName}, quick check: were you able to finish ${input.choreTitle}? Just reply yes or no.`;
+    case "escalation_nudge":
+      return `⏰ Hey ${input.roommateName}, just a nudge on ${input.choreTitle}. It’s okay to forget once, but please sort it soon or it’ll count as a missed turn and a strike.`;
     case "resolution_options":
-      return `No problem. Would you like to push ${input.choreTitle} to tomorrow, or should I assign someone else?`;
+      return `🙂 No stress, it happens. Do you want me to push ${input.choreTitle} to tomorrow, or should I assign someone else so it gets done tonight?`;
     case "handoff_notice":
-      return `Hey ${input.roommateName}, ${input.choreTitle} was handed over to you. Can you take care of it and let me know when it's done?`;
+      return `🔁 Hey ${input.roommateName}, ${input.choreTitle} was handed over to you. Can you take care of it tonight and let me know when it’s done?`;
     case "done_confirmation":
-      return `Perfect, I marked ${input.choreTitle} as done.`;
+      return `✅ Perfect, I marked ${input.choreTitle} as done.`;
     case "skip_confirmation":
       return input.nextRoommateName
-        ? `Okay, I moved ${input.choreTitle} to ${input.nextRoommateName}.`
-        : `Okay, I marked ${input.choreTitle} as skipped.`;
+        ? `🔁 Okay, I moved ${input.choreTitle} to ${input.nextRoommateName}.`
+        : `👌 Okay, I marked ${input.choreTitle} as skipped.`;
     case "rescue_confirmation":
-      return `Thanks, I marked ${input.choreTitle} as rescued. The original turn still stays on record.`;
+      return `🛟 Thanks, I marked ${input.choreTitle} as rescued. The original turn still stays on record.`;
     case "postpone_confirmation":
-      return `Okay, I pushed ${input.choreTitle} to tomorrow and left it with you.`;
+      return `📅 Okay, I pushed ${input.choreTitle} to tomorrow and left it with you.`;
     default:
       return `Hey ${input.roommateName}, quick update about ${input.choreTitle}.`;
   }
@@ -285,16 +313,22 @@ export async function composeWhatsappConversationMessage(input: {
 You write WhatsApp messages for a shared-apartment chore assistant.
 
 Write one short, natural message.
-It should feel human, clear, and calm, not robotic or overly cheerful.
+It should feel human, clear, friendly, and lightly persuasive.
 Use simple everyday English.
 Do not use bullet points, markdown, labels, or quotation marks.
 Keep it to 1 or 2 short sentences.
+Use 1 or 2 fitting emojis.
+Do not say "let me know if you need a hand".
+The goal is to get the roommate to actually finish the task.
+If the task is overdue, be warmer but firmer.
+It is okay to mention that leaving it open can lead to a missed turn or a strike, but do it casually and not like a legal warning.
 
 Message type: ${input.kind}
 Roommate name: ${input.roommateName}
 Chore: ${input.choreTitle}
 Due date context: ${input.dueDate ?? "not provided"}
 Next roommate if relevant: ${input.nextRoommateName ?? "not relevant"}
+Required content: ${getWhatsappMessageRequirements(input.kind)}
     `);
 
     const text = response?.text?.trim();

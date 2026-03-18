@@ -4,6 +4,7 @@ import { rememberLastOutboundAssignment } from "./message-service.js";
 import {
   addEventLog,
   getAssignmentsDueForCompletionCheck,
+  getAssignmentsDueForEscalationNudge,
   getAssignmentsDueForReminder,
   hasConversationPromptBeenSent,
   markReminderSent
@@ -95,6 +96,44 @@ async function runReminderTick() {
         eventType: "CONVERSATION_MESSAGE_SENT",
         payload: JSON.stringify({
           promptType: "completion_check",
+          originalTo: assignment.whatsappNumber,
+          effectiveTo: outboundTo,
+          source: composed.source,
+          model: composed.model
+        })
+      });
+    } catch (error) {
+      addEventLog({
+        roommateId: assignment.roommateId,
+        assignmentId: assignment.id,
+        eventType: "FOLLOW_UP_FAILED",
+        payload: JSON.stringify({
+          error: error instanceof Error ? error.message : "unknown"
+        })
+      });
+    }
+  }
+
+  const escalationAssignments = getAssignmentsDueForEscalationNudge(new Date());
+
+  for (const assignment of escalationAssignments) {
+    const outboundTo = resolveOutboundWhatsappNumber(assignment.whatsappNumber);
+    const composed = await composeWhatsappConversationMessage({
+      kind: "escalation_nudge",
+      roommateName: assignment.roommateName,
+      choreTitle: assignment.choreTitle,
+      dueDate: assignment.dueDate
+    });
+
+    try {
+      await sendWhatsappMessage(assignment.whatsappNumber, composed.text);
+      rememberLastOutboundAssignment(outboundTo, assignment.id);
+      addEventLog({
+        roommateId: assignment.roommateId,
+        assignmentId: assignment.id,
+        eventType: "CONVERSATION_MESSAGE_SENT",
+        payload: JSON.stringify({
+          promptType: "escalation_nudge",
           originalTo: assignment.whatsappNumber,
           effectiveTo: outboundTo,
           source: composed.source,

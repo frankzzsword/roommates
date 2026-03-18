@@ -1695,3 +1695,30 @@ export function getAssignmentsDueForCompletionCheck(now: Date): Assignment[] {
     return now >= dueAt;
   });
 }
+
+export function getAssignmentsDueForEscalationNudge(now: Date): Assignment[] {
+  return listAllPendingAssignments().filter((assignment) => {
+    if (!assignment.roommateReminderEnabled) {
+      return false;
+    }
+
+    const settings = getHouseSettings();
+    if (!settings.autoRemindersEnabled || !assignment.reminderSentAt) {
+      return false;
+    }
+
+    if (!hasConversationPromptBeenSent(assignment.id, "completion_check")) {
+      return false;
+    }
+
+    if (hasConversationPromptBeenSent(assignment.id, "escalation_nudge")) {
+      return false;
+    }
+
+    const dueHour = assignment.roommateReminderHour || assignment.defaultDueHour;
+    const dueAt = new Date(`${assignment.dueDate}T${String(dueHour).padStart(2, "0")}:00:00`);
+    const escalationAt = new Date(dueAt.getTime() + 2 * 60 * 60 * 1000);
+
+    return now >= escalationAt;
+  });
+}
