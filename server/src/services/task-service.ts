@@ -1674,6 +1674,127 @@ export function getAssignmentsDueForReminder(now: Date): Assignment[] {
   });
 }
 
+function startOfDay(value: Date) {
+  return new Date(`${value.toISOString().slice(0, 10)}T00:00:00`);
+}
+
+function dayDifference(now: Date, dueDate: string) {
+  const today = startOfDay(now);
+  const due = new Date(`${dueDate}T00:00:00`);
+  return Math.round((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function reminderHourForAssignment(assignment: Assignment) {
+  return assignment.roommateReminderHour || assignment.defaultDueHour || 18;
+}
+
+function hasReachedReminderTime(input: {
+  now: Date;
+  dueDate: string;
+  hour: number;
+  minute?: number;
+}) {
+  const reminderAt = new Date(
+    `${input.dueDate}T${String(input.hour).padStart(2, "0")}:${String(
+      input.minute ?? 0
+    ).padStart(2, "0")}:00`
+  );
+
+  return input.now >= reminderAt;
+}
+
+export function getAssignmentsDueForWeeklyHeadsUp(now: Date): Assignment[] {
+  const weekday = now.getDay();
+  const isWeekStart = weekday === 1;
+
+  if (!isWeekStart) {
+    return [];
+  }
+
+  return listAllPendingAssignments().filter((assignment) => {
+    if (!assignment.roommateReminderEnabled) {
+      return false;
+    }
+
+    const settings = getHouseSettings();
+    if (!settings.autoRemindersEnabled) {
+      return false;
+    }
+
+    if (hasConversationPromptBeenSent(assignment.id, "weekly_heads_up")) {
+      return false;
+    }
+
+    const diff = dayDifference(now, assignment.dueDate);
+    return (
+      diff >= 0 &&
+      diff <= 6 &&
+      hasReachedReminderTime({
+        now,
+        dueDate: now.toISOString().slice(0, 10),
+        hour: reminderHourForAssignment(assignment)
+      })
+    );
+  });
+}
+
+export function getAssignmentsDueForTwoDayReminder(now: Date): Assignment[] {
+  return listAllPendingAssignments().filter((assignment) => {
+    if (!assignment.roommateReminderEnabled) {
+      return false;
+    }
+
+    const settings = getHouseSettings();
+    if (!settings.autoRemindersEnabled) {
+      return false;
+    }
+
+    if (hasConversationPromptBeenSent(assignment.id, "two_day_reminder")) {
+      return false;
+    }
+
+    return (
+      dayDifference(now, assignment.dueDate) === 2 &&
+      hasReachedReminderTime({
+        now,
+        dueDate: now.toISOString().slice(0, 10),
+        hour: reminderHourForAssignment(assignment)
+      })
+    );
+  });
+}
+
+export function getAssignmentsDueForDayOfReminder(now: Date): Assignment[] {
+  return listAllPendingAssignments().filter((assignment) => {
+    if (!assignment.roommateReminderEnabled) {
+      return false;
+    }
+
+    const settings = getHouseSettings();
+    if (!settings.autoRemindersEnabled) {
+      return false;
+    }
+
+    if (hasConversationPromptBeenSent(assignment.id, "day_of_reminder")) {
+      return false;
+    }
+
+    if (dayDifference(now, assignment.dueDate) !== 0) {
+      return false;
+    }
+
+    const leadMinutes =
+      assignment.roommateReminderLeadMinutes ||
+      assignment.reminderLeadMinutes ||
+      settings.defaultReminderLeadMinutes;
+    const dueHour = reminderHourForAssignment(assignment);
+    const dueAt = new Date(`${assignment.dueDate}T${String(dueHour).padStart(2, "0")}:00:00`);
+    const reminderAt = new Date(dueAt.getTime() - leadMinutes * 60 * 1000);
+
+    return now >= reminderAt;
+  });
+}
+
 export function getAssignmentsDueForCompletionCheck(now: Date): Assignment[] {
   return listAllPendingAssignments().filter((assignment) => {
     if (!assignment.roommateReminderEnabled) {

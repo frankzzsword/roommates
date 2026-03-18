@@ -34,6 +34,9 @@ export interface AiWhatsappIntent {
 }
 
 type WhatsappMessageKind =
+  | "weekly_heads_up"
+  | "two_day_reminder"
+  | "day_of_reminder"
   | "assignment_reminder"
   | "completion_check"
   | "escalation_nudge"
@@ -64,6 +67,12 @@ function uniqueModels() {
 
 function getWhatsappMessageRequirements(kind: WhatsappMessageKind) {
   switch (kind) {
+    case "weekly_heads_up":
+      return "Give a friendly start-of-week heads up that this task is coming later this week.";
+    case "two_day_reminder":
+      return "Remind them the task is coming up in two days and ask them to keep it on their radar.";
+    case "day_of_reminder":
+      return "Tell them the task is due today and ask them to message back when it is finished.";
     case "assignment_reminder":
       return "Tell them the task is theirs, mention the due timing, and ask them to message back when it is done.";
     case "completion_check":
@@ -97,26 +106,32 @@ function fallbackWhatsappConversationMessage(input: {
   const duePhrase = input.dueDate ? ` due by ${input.dueDate}` : "";
 
   switch (input.kind) {
+    case "weekly_heads_up":
+      return `😃 Hey ${input.roommateName}, just a heads up that ${input.choreTitle} is yours later this week. Please keep it in mind so it gets wrapped up on time.`;
+    case "two_day_reminder":
+      return `🔔 Hey ${input.roommateName}, just a reminder that ${input.choreTitle} is coming up in two days. Please keep it on your radar.`;
+    case "day_of_reminder":
+      return `😃 Hey ${input.roommateName}, ${input.choreTitle} is due today. Please get it done today and message me when it’s finished.`;
     case "assignment_reminder":
-      return `🧹 Hey ${input.roommateName}, you’ve got ${input.choreTitle}${duePhrase}. Please get it done and message me once it’s sorted.`;
+      return `😃 Hey ${input.roommateName}, you’ve got ${input.choreTitle}${duePhrase}. Please get it done and message me once it’s sorted.`;
     case "completion_check":
-      return `👀 Hey ${input.roommateName}, quick check: were you able to finish ${input.choreTitle}? Just reply yes or no.`;
+      return `👀 Hey ${input.roommateName}, were you able to finish ${input.choreTitle}? Please reply yes or no.`;
     case "escalation_nudge":
-      return `⏰ Hey ${input.roommateName}, just a nudge on ${input.choreTitle}. It’s okay to forget once, but please sort it soon or it’ll count as a missed turn and a strike.`;
+      return `🚨 Hey ${input.roommateName}, just a nudge on ${input.choreTitle}. It’s okay to forget once, but please sort it soon or it’ll count as a missed turn and a strike.`;
     case "resolution_options":
       return `🙂 No stress, it happens. Do you want me to push ${input.choreTitle} to tomorrow, or should I assign someone else so it gets done tonight?`;
     case "handoff_notice":
-      return `🔁 Hey ${input.roommateName}, ${input.choreTitle} was handed over to you. Can you take care of it tonight and let me know when it’s done?`;
+      return `😃 Hey ${input.roommateName}, ${input.choreTitle} was handed over to you for tonight. Can you take care of it this evening and message me when it’s done?`;
     case "done_confirmation":
-      return `✅ Perfect, I marked ${input.choreTitle} as done.`;
+      return `😍 Amazing, I marked ${input.choreTitle} as done ♥️`;
     case "skip_confirmation":
       return input.nextRoommateName
-        ? `🔁 Okay, I moved ${input.choreTitle} to ${input.nextRoommateName}.`
-        : `👌 Okay, I marked ${input.choreTitle} as skipped.`;
+        ? `😌 Okay, I moved ${input.choreTitle} to ${input.nextRoommateName}.`
+        : `😌 Okay, I marked ${input.choreTitle} as skipped.`;
     case "rescue_confirmation":
-      return `🛟 Thanks, I marked ${input.choreTitle} as rescued. The original turn still stays on record.`;
+      return `😍 Thank you, I marked ${input.choreTitle} as rescued ♥️ The original turn still stays on record.`;
     case "postpone_confirmation":
-      return `📅 Okay, I pushed ${input.choreTitle} to tomorrow and left it with you.`;
+      return `😌 Okay, I pushed ${input.choreTitle} to tomorrow and left it with you.`;
     default:
       return `Hey ${input.roommateName}, quick update about ${input.choreTitle}.`;
   }
@@ -318,7 +333,13 @@ Use simple everyday English.
 Do not use bullet points, markdown, labels, or quotation marks.
 Keep it to 1 or 2 short sentences.
 Use 1 or 2 fitting emojis.
+Do not use hyphens, en dashes, or em dashes in the message.
+Prefer smiley or warm emojis like 😃 🙂 👀 🚨 😍 ♥️ when they fit the message.
 Do not say "let me know if you need a hand".
+Do not say "just checking in".
+For reminder style messages, start with a cheerful emoji when it feels natural.
+For overdue nudges, use a firmer emoji like 👀 or 🚨.
+For success or thanks, use warm celebratory emojis like 😍 or ♥️.
 The goal is to get the roommate to actually finish the task.
 If the task is overdue, be warmer but firmer.
 It is okay to mention that leaving it open can lead to a missed turn or a strike, but do it casually and not like a legal warning.

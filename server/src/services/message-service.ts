@@ -701,6 +701,9 @@ async function handleConversationalReply(actor: {
   }
 
   if (
+    latestPrompt.promptType === "weekly_heads_up" ||
+    latestPrompt.promptType === "two_day_reminder" ||
+    latestPrompt.promptType === "day_of_reminder" ||
     latestPrompt.promptType === "assignment_reminder" ||
     latestPrompt.promptType === "completion_check" ||
     latestPrompt.promptType === "escalation_nudge"
@@ -720,7 +723,15 @@ async function handleConversationalReply(actor: {
       return { message, assignmentId };
     }
 
-    if (isNegativeReply(body)) {
+    if (
+      isNegativeReply(body) &&
+      (
+        latestPrompt.promptType === "day_of_reminder" ||
+        latestPrompt.promptType === "assignment_reminder" ||
+        latestPrompt.promptType === "completion_check" ||
+        latestPrompt.promptType === "escalation_nudge"
+      )
+    ) {
       const message = await sendConversationalReply({
         to: actor.whatsappNumber,
         roommateId: assignment.roommateId,
