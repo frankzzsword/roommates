@@ -6,6 +6,8 @@ import type {
   AdvanceRotationOn,
   ChoreStatus,
   FrequencyUnit,
+  UiBalanceEntry,
+  UiExpenseEntry,
   HouseholdSnapshot,
   RoommateDraft,
   ReminderPreferences,
@@ -141,6 +143,36 @@ interface BackendPenalty {
   ruleTitle: string | null;
 }
 
+interface BackendExpenseShare {
+  expenseId: number;
+  roommateId: number;
+  roommateName: string;
+  shareCents: number;
+}
+
+interface BackendExpense {
+  id: number;
+  title: string;
+  amountCents: number;
+  currency: string;
+  paidByRoommateId: number;
+  paidByRoommateName: string;
+  note: string | null;
+  createdAt: string;
+  excludedRoommateIds: number[];
+  excludedRoommateNames: string[];
+  shares: BackendExpenseShare[];
+}
+
+interface BackendBalance {
+  fromRoommateId: number;
+  fromRoommateName: string;
+  toRoommateId: number;
+  toRoommateName: string;
+  amountCents: number;
+  currency: string;
+}
+
 interface BackendHouseholdSnapshot {
   settings: BackendHouseSettings;
   roommates: BackendRoommate[];
@@ -175,6 +207,8 @@ interface BackendHouseholdSnapshot {
   events: BackendEvent[];
   penaltyRules: BackendPenaltyRule[];
   penalties: BackendPenalty[];
+  expenses: BackendExpense[];
+  balances: BackendBalance[];
 }
 
 interface BackendAiSubtaskResponse {
@@ -504,6 +538,39 @@ function mapPenaltyRule(
   };
 }
 
+function mapExpenses(expenses: BackendExpense[]): UiExpenseEntry[] {
+  return expenses.map((expense) => ({
+    id: String(expense.id),
+    title: expense.title,
+    amount: expense.amountCents / 100,
+    amountLabel: formatCurrency(expense.amountCents / 100, currency),
+    paidByRoommateId: String(expense.paidByRoommateId),
+    paidByRoommateName: expense.paidByRoommateName,
+    note: expense.note ?? "",
+    createdAt: expense.createdAt,
+    createdLabel: formatShortRelative(expense.createdAt),
+    excludedRoommateIds: expense.excludedRoommateIds.map(String),
+    excludedRoommateNames: expense.excludedRoommateNames,
+    shares: expense.shares.map((share) => ({
+      roommateId: String(share.roommateId),
+      roommateName: share.roommateName,
+      share: share.shareCents / 100,
+      shareLabel: formatCurrency(share.shareCents / 100, currency)
+    }))
+  }));
+}
+
+function mapBalances(balances: BackendBalance[]): UiBalanceEntry[] {
+  return balances.map((balance) => ({
+    fromRoommateId: String(balance.fromRoommateId),
+    fromRoommateName: balance.fromRoommateName,
+    toRoommateId: String(balance.toRoommateId),
+    toRoommateName: balance.toRoommateName,
+    amount: balance.amountCents / 100,
+    amountLabel: formatCurrency(balance.amountCents / 100, currency)
+  }));
+}
+
 function mapSettings(
   settings: BackendHouseSettings,
   _penaltyRules: BackendPenaltyRule[],
@@ -545,6 +612,8 @@ function mapBackendSnapshot(raw: BackendHouseholdSnapshot): HouseholdSnapshot {
     rescueCount: rescueCounts.get(roommate.id) ?? roommate.rescueCount
   }));
   const penalties = mapPenalties(raw.penalties);
+  const expenses = mapExpenses(raw.expenses);
+  const balances = mapBalances(raw.balances);
   const penaltyRule = mapPenaltyRule(raw.penaltyRules, raw.settings, preview);
 
   return {
@@ -555,6 +624,8 @@ function mapBackendSnapshot(raw: BackendHouseholdSnapshot): HouseholdSnapshot {
     chores: mapAssignments(raw.assignments, roommates),
     activity: mapEvents(raw.events),
     penalties,
+    expenses,
+    balances,
     penaltyRule,
     settings: mapSettings(raw.settings, raw.penaltyRules, preview),
     lastSyncLabel: `Synced ${formatShortRelative(raw.settings.updatedAt)}`
@@ -643,6 +714,46 @@ export async function loginRoommate(name: string, password: string): Promise<{ r
   return {
     roommateId: String(result.roommate.id)
   };
+}
+
+export async function createExpenseEntry(payload: {
+  title: string;
+  amount: number;
+  paidByRoommateId: string;
+  includedRoommateIds: string[];
+  note?: string;
+}): Promise<SaveResult> {
+  const result = await tryRequest("/api/expenses", {
+    method: "POST",
+    body: JSON.stringify({
+      title: payload.title,
+      amountCents: Math.round(payload.amount * 100),
+      paidByRoommateId: Number(payload.paidByRoommateId),
+      includedRoommateIds: payload.includedRoommateIds.map(Number),
+      note: payload.note ?? null
+    })
+  });
+
+  return result ? { synced: true, notice: "Expense added to the house ledger." } : withLocalNotice("Expense saved locally only.");
+}
+
+export async function createSettlementEntry(payload: {
+  fromRoommateId: string;
+  toRoommateId: string;
+  amount: number;
+  note?: string;
+}): Promise<SaveResult> {
+  const result = await tryRequest("/api/settlements", {
+    method: "POST",
+    body: JSON.stringify({
+      fromRoommateId: Number(payload.fromRoommateId),
+      toRoommateId: Number(payload.toRoommateId),
+      amountCents: Math.round(payload.amount * 100),
+      note: payload.note ?? null
+    })
+  });
+
+  return result ? { synced: true, notice: "Settlement recorded." } : withLocalNotice("Settlement saved locally only.");
 }
 
 function withLocalNotice(message: string): SaveResult {

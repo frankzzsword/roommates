@@ -12,20 +12,25 @@ import type {
 } from "../lib/types.js";
 import {
   addEventLog,
+  createExpense,
   createAssignment,
   createChore,
   createPenalty,
   createPenaltyRule,
   createRoommate,
+  createSettlement,
   getHouseSettings,
   getOldestPendingAssignment,
   getRoommateById,
   listAssignments,
+  listBalances,
   listChores,
+  listExpenses,
   listPenalties,
   listPenaltyRules,
   listRecentEvents,
   listRoommates,
+  listSettlements,
   rescueAssignment,
   updateAssignment,
   updateChore,
@@ -48,7 +53,10 @@ export function getHouseholdSnapshot(): HouseholdSnapshot {
     assignments: listAssignments(),
     events: listRecentEvents(50),
     penaltyRules: listPenaltyRules(),
-    penalties: listPenalties()
+    penalties: listPenalties(),
+    expenses: listExpenses(),
+    settlements: listSettlements(),
+    balances: listBalances()
   };
 }
 
@@ -285,6 +293,25 @@ export function createPenaltyRecord(input: {
     });
   }
   return penalty;
+}
+
+export function createExpenseRecord(input: {
+  title: string;
+  amountCents: number;
+  paidByRoommateId: number;
+  note?: string | null;
+  includedRoommateIds: number[];
+}) {
+  return createExpense(input);
+}
+
+export function createSettlementRecord(input: {
+  fromRoommateId: number;
+  toRoommateId: number;
+  amountCents: number;
+  note?: string | null;
+}) {
+  return createSettlement(input);
 }
 
 export function updatePenaltyRecord(

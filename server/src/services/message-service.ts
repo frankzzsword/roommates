@@ -6,14 +6,19 @@ import {
 } from "./ai-service.js";
 import {
   addEventLog,
+  createExpense,
+  createSettlement,
   findRoommateByWhatsappNumber,
   getAssignmentById,
   getLatestConversationPromptForWhatsapp,
   getOldestPendingAssignment,
+  getRoommateById,
   handoffAssignmentToNextRoommate,
+  listBalances,
   listAllPendingAssignments,
   listPendingAssignmentsForRoommate,
   listRecentEvents,
+  listRoommates,
   postponeAssignmentToTomorrow,
   rescueAssignment,
   updateAssignmentStatus
@@ -107,12 +112,131 @@ function wantsReassign(body: string) {
   );
 }
 
+function parseMoneyAmount(body: string) {
+  const match = body.match(/(\d+(?:[.,]\d{1,2})?)\s*(?:€|euros?|eur)\b/i);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]?.replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
+
+  return {
+    amount,
+    amountCents: Math.round(amount * 100),
+    raw: match[0],
+    index: match.index ?? -1
+  };
+}
+
+function findMentionedRoommates(body: string) {
+  const normalized = normalizeMatchText(body);
+  return listRoommates().filter((roommate) =>
+    normalized.includes(normalizeMatchText(roommate.name))
+  );
+}
+
+function parseExpenseMessage(body: string, actorRoommateId: number | null) {
+  if (!actorRoommateId) {
+    return null;
+  }
+
+  const lowered = normalizeMatchText(body);
+  if (
+    lowered.includes("done") ||
+    lowered.includes("skip") ||
+    lowered.includes("rescue") ||
+    lowered.includes("task") ||
+    lowered.includes("chore") ||
+    lowered.startsWith("tasks") ||
+    lowered.startsWith("status")
+  ) {
+    return null;
+  }
+
+  const amountMatch = parseMoneyAmount(body);
+  if (!amountMatch) {
+    return null;
+  }
+
+  const title = body.slice(0, amountMatch.index).trim().replace(/[,:-]+$/g, "");
+  if (!title) {
+    return null;
+  }
+
+  const excluded = body.match(/exclude\s+(.+)$/i)?.[1] ?? "";
+  const excludedNames = excluded
+    .split(/,|and/i)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const allRoommates = listRoommates().filter((roommate) => roommate.isActive);
+  const excludedRoommateIds = new Set<number>();
+
+  for (const excludedName of excludedNames) {
+    const match = allRoommates.find(
+      (roommate) => normalizeMatchText(roommate.name) === normalizeMatchText(excludedName)
+    );
+    if (match) {
+      excludedRoommateIds.add(match.id);
+    }
+  }
+
+  const includedRoommateIds = allRoommates
+    .map((roommate) => roommate.id)
+    .filter((roommateId) => !excludedRoommateIds.has(roommateId));
+
+  if (!includedRoommateIds.includes(actorRoommateId)) {
+    includedRoommateIds.push(actorRoommateId);
+  }
+
+  return {
+    title,
+    amountCents: amountMatch.amountCents,
+    excludedRoommateIds: Array.from(excludedRoommateIds),
+    includedRoommateIds: [...new Set(includedRoommateIds)].sort((left, right) => left - right)
+  };
+}
+
+function parseSettlementMessage(body: string, actorRoommateId: number | null) {
+  if (!actorRoommateId) {
+    return null;
+  }
+
+  const lowered = normalizeMatchText(body);
+  if (!lowered.includes("paid")) {
+    return null;
+  }
+
+  const amountMatch = parseMoneyAmount(body);
+  if (!amountMatch) {
+    return null;
+  }
+
+  const mentionedRoommates = findMentionedRoommates(body).filter(
+    (roommate) => roommate.id !== actorRoommateId
+  );
+  const counterparty = mentionedRoommates[0];
+  if (!counterparty) {
+    return null;
+  }
+
+  return {
+    fromRoommateId: actorRoommateId,
+    toRoommateId: counterparty.id,
+    amountCents: amountMatch.amountCents
+  };
+}
+
 function buildHelpMessage() {
   return [
     "Just reply in plain English:",
     '"I finished the kitchen"',
     '"I can\'t do trash today, pass it on"',
     '"I did Noah\'s trash for him"',
+    '"Toilet paper 3.56 euros exclude Julia"',
+    '"I paid Varun 8 euros"',
     "",
     "Fallback commands still work:",
     "TASKS - show open chores",
@@ -812,6 +936,58 @@ export async function processInboundMessage(params: {
     return {
       message: "Your number is not registered yet. Ask the admin to add you first."
     };
+  }
+
+  const expenseInput = parseExpenseMessage(normalized, actorRoommate?.id ?? null);
+  if (expenseInput && actorRoommate) {
+    const expense = createExpense({
+      title: expenseInput.title,
+      amountCents: expenseInput.amountCents,
+      paidByRoommateId: actorRoommate.id,
+      includedRoommateIds: expenseInput.includedRoommateIds,
+      note:
+        expenseInput.excludedRoommateIds.length > 0
+          ? `Excluded ${expenseInput.excludedRoommateIds.length} roommate(s)`
+          : null
+    });
+
+    if (expense) {
+      const splitCount = expense.shares.length;
+      const perPerson = expense.shares[0]?.shareCents ?? 0;
+      return {
+        message:
+          expense.excludedRoommateNames.length > 0
+            ? `😍 Logged ${expense.title} for ${(expense.amountCents / 100).toFixed(2)} EUR. Split between ${splitCount} people, ${Math.round(perPerson) / 100} EUR each, excluding ${expense.excludedRoommateNames.join(", ")} ♥️`
+            : `😍 Logged ${expense.title} for ${(expense.amountCents / 100).toFixed(2)} EUR. Split between ${splitCount} people, ${Math.round(perPerson) / 100} EUR each ♥️`
+      };
+    }
+  }
+
+  const settlementInput = parseSettlementMessage(normalized, actorRoommate?.id ?? null);
+  if (settlementInput) {
+    const balance = listBalances().find(
+      (entry) =>
+        entry.fromRoommateId === settlementInput.fromRoommateId &&
+        entry.toRoommateId === settlementInput.toRoommateId
+    );
+
+    const amountCents = Math.min(
+      settlementInput.amountCents,
+      balance?.amountCents ?? settlementInput.amountCents
+    );
+
+    const settlement = createSettlement({
+      fromRoommateId: settlementInput.fromRoommateId,
+      toRoommateId: settlementInput.toRoommateId,
+      amountCents,
+      note: "Logged from chat"
+    });
+
+    if (settlement) {
+      return {
+        message: `😃 Logged your payment of ${(settlement.amountCents / 100).toFixed(2)} EUR to ${settlement.toRoommateName}. The dashboard balances are updated.`
+      };
+    }
   }
 
   const conversationalResult = await handleConversationalReply(actor, normalized);

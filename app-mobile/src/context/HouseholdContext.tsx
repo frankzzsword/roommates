@@ -10,8 +10,10 @@ import {
 
 import {
   buildLocalPenalty,
+  createExpenseEntry,
   createRoommate as createRoommateRecord,
   createPenalty,
+  createSettlementEntry,
   fetchHouseholdSnapshot,
   getPreviewSnapshot,
   loginRoommate as loginRoommateRequest,
@@ -60,6 +62,13 @@ interface HouseholdContextValue extends HouseholdState {
   saveChoreDraft: (draft: UiChore) => Promise<void>;
   saveTaskTemplateDraft: (draft: UiTaskTemplate) => Promise<void>;
   addPenalty: (roommateId: string, reason: string) => Promise<void>;
+  createExpense: (input: {
+    title: string;
+    amount: number;
+    includedRoommateIds: string[];
+    note?: string;
+  }) => Promise<void>;
+  settleBalance: (toRoommateId: string, amount: number, note?: string) => Promise<void>;
   triggerTestReminder: (roommateId: string) => Promise<void>;
 }
 
@@ -518,6 +527,59 @@ export function HouseholdProvider({ children }: PropsWithChildren) {
     }
   }
 
+  async function createExpense(input: {
+    title: string;
+    amount: number;
+    includedRoommateIds: string[];
+    note?: string;
+  }) {
+    if (!loggedInRoommateId) {
+      return;
+    }
+
+    try {
+      const result = await createExpenseEntry({
+        ...input,
+        paidByRoommateId: loggedInRoommateId
+      });
+      await reload();
+      setState((current) => ({
+        ...current,
+        syncNotice: result.notice ?? "Expense added."
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        syncNotice: getErrorNotice(error, "Unable to add the expense right now.")
+      }));
+    }
+  }
+
+  async function settleBalance(toRoommateId: string, amount: number, note?: string) {
+    if (!loggedInRoommateId) {
+      return;
+    }
+
+    try {
+      const result = await createSettlementEntry({
+        fromRoommateId: loggedInRoommateId,
+        toRoommateId,
+        amount,
+        note
+      });
+      await reload();
+      setState((current) => ({
+        ...current,
+        syncNotice: result.notice ?? "Settlement saved."
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        syncNotice: getErrorNotice(error, "Unable to record that payment right now.")
+      }));
+    }
+  }
+
   async function triggerTestReminder(roommateId: string) {
     const roommate = state.snapshot.roommates.find((entry) => entry.id === roommateId);
     if (!roommate) {
@@ -640,6 +702,8 @@ export function HouseholdProvider({ children }: PropsWithChildren) {
       saveChoreDraft,
       saveTaskTemplateDraft,
       addPenalty,
+      createExpense,
+      settleBalance,
       triggerTestReminder
     }),
     [activeRoommate, authReady, loggedInRoommateId, state, summary]

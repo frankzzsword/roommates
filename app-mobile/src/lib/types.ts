@@ -119,6 +119,37 @@ export interface UiPenaltyEntry {
   dueLabel: string;
 }
 
+export interface UiExpenseShare {
+  roommateId: string;
+  roommateName: string;
+  share: number;
+  shareLabel: string;
+}
+
+export interface UiExpenseEntry {
+  id: string;
+  title: string;
+  amount: number;
+  amountLabel: string;
+  paidByRoommateId: string;
+  paidByRoommateName: string;
+  note: string;
+  createdAt: string;
+  createdLabel: string;
+  excludedRoommateIds: string[];
+  excludedRoommateNames: string[];
+  shares: UiExpenseShare[];
+}
+
+export interface UiBalanceEntry {
+  fromRoommateId: string;
+  fromRoommateName: string;
+  toRoommateId: string;
+  toRoommateName: string;
+  amount: number;
+  amountLabel: string;
+}
+
 export interface UiHouseSettings {
   autoReminders: boolean;
   weeklySummary: boolean;
@@ -191,6 +222,8 @@ export interface HouseholdSnapshot {
   chores: UiChore[];
   activity: UiActivityEntry[];
   penalties: UiPenaltyEntry[];
+  expenses: UiExpenseEntry[];
+  balances: UiBalanceEntry[];
   penaltyRule: UiPenaltyRule;
   settings: UiHouseSettings;
   lastSyncLabel: string;

@@ -115,7 +115,7 @@ async function main() {
   try {
     await client.query("BEGIN");
     await client.query(
-      "TRUNCATE event_log, penalties, assignments, chores, penalty_rules, roommates RESTART IDENTITY CASCADE"
+      "TRUNCATE event_log, settlements, expense_shares, expenses, penalties, assignments, chores, penalty_rules, roommates RESTART IDENTITY CASCADE"
     );
     await client.query("DELETE FROM house_settings");
     await client.query(

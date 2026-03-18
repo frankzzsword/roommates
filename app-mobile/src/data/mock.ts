@@ -2,7 +2,9 @@ import type {
   FrequencyUnit,
   HouseholdSnapshot,
   UiChore,
+  UiExpenseEntry,
   UiHouseSummary,
+  UiBalanceEntry,
   UiPenaltyEntry,
   UiScoreboardEntry,
   UiTaskTemplate
@@ -269,6 +271,40 @@ export function buildPreviewSnapshot(): HouseholdSnapshot {
     }
   ];
 
+  const expenses: UiExpenseEntry[] = [
+    {
+      id: "expense-1",
+      title: "Toilet paper",
+      amount: 3.56,
+      amountLabel: "€3.56",
+      paidByRoommateId: "varun",
+      paidByRoommateName: "Varun",
+      note: "",
+      createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+      createdLabel: "6h ago",
+      excludedRoommateIds: ["julia"],
+      excludedRoommateNames: ["Julia"],
+      shares: [
+        { roommateId: "varun", roommateName: "Varun", share: 0.71, shareLabel: "€0.71" },
+        { roommateId: "mayssa", roommateName: "Mayssa", share: 0.71, shareLabel: "€0.71" },
+        { roommateId: "noah", roommateName: "Noah", share: 0.71, shareLabel: "€0.71" },
+        { roommateId: "tracy", roommateName: "Tracy", share: 0.72, shareLabel: "€0.72" },
+        { roommateId: "maria", roommateName: "Maria", share: 0.71, shareLabel: "€0.71" }
+      ]
+    }
+  ];
+
+  const balances: UiBalanceEntry[] = [
+    {
+      fromRoommateId: "mayssa",
+      fromRoommateName: "Mayssa",
+      toRoommateId: "varun",
+      toRoommateName: "Varun",
+      amount: 0.71,
+      amountLabel: "€0.71"
+    }
+  ];
+
   return {
     houseName: "Kreuzberg Flat",
     activeRoommateId: "varun",
@@ -456,6 +492,8 @@ export function buildPreviewSnapshot(): HouseholdSnapshot {
       }
     ],
     penalties,
+    expenses,
+    balances,
     penaltyRule: {
       id: "rule-1",
       enabled: true,

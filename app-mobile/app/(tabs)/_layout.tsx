@@ -67,9 +67,9 @@ export default function TabsLayout() {
           }
         }}
         options={{
-          title: "Scoreboard",
+          title: "Money",
           tabBarIcon: ({ color, size }) => (
-            <Feather color={color} name="award" size={size} />
+            <Feather color={color} name="credit-card" size={size} />
           ),
         }}
       />

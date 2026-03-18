@@ -6,9 +6,11 @@ import "./db/seed.js";
 import {
   createAssignmentRecord,
   createChoreRecord,
+  createExpenseRecord,
   createPenaltyRecord,
   createPenaltyRuleRecord,
   createRoommateRecord,
+  createSettlementRecord,
   getHouseholdSnapshot,
   sendTestReminder,
   updateAssignmentRecord,
@@ -386,6 +388,52 @@ export function createApp() {
     });
 
     res.status(201).json({ penalty });
+  });
+
+  app.post("/api/expenses", (req, res) => {
+    const title = asRequiredString(req.body.title);
+    const amountCents = asPositiveNumber(req.body.amountCents);
+    const paidByRoommateId = asPositiveNumber(req.body.paidByRoommateId);
+    const includedRoommateIds = Array.isArray(req.body.includedRoommateIds)
+      ? req.body.includedRoommateIds
+          .map((value: unknown) => Number(value))
+          .filter(Number.isFinite)
+      : [];
+
+    if (!title || !amountCents || !paidByRoommateId || includedRoommateIds.length === 0) {
+      res.status(400).json({ error: "Title, amount, payer, and participants are required." });
+      return;
+    }
+
+    const expense = createExpenseRecord({
+      title,
+      amountCents,
+      paidByRoommateId,
+      note: asNullableString(req.body.note),
+      includedRoommateIds
+    });
+
+    res.status(201).json({ expense });
+  });
+
+  app.post("/api/settlements", (req, res) => {
+    const fromRoommateId = asPositiveNumber(req.body.fromRoommateId);
+    const toRoommateId = asPositiveNumber(req.body.toRoommateId);
+    const amountCents = asPositiveNumber(req.body.amountCents);
+
+    if (!fromRoommateId || !toRoommateId || !amountCents) {
+      res.status(400).json({ error: "Settlement requires sender, receiver, and amount." });
+      return;
+    }
+
+    const settlement = createSettlementRecord({
+      fromRoommateId,
+      toRoommateId,
+      amountCents,
+      note: asNullableString(req.body.note)
+    });
+
+    res.status(201).json({ settlement });
   });
 
   app.patch("/api/penalties/:id", (req, res) => {

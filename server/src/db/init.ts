@@ -133,6 +133,33 @@ export function initializeDatabase() {
       settled_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS expenses (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      paid_by_roommate_id INTEGER NOT NULL REFERENCES roommates(id),
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS expense_shares (
+      id SERIAL PRIMARY KEY,
+      expense_id INTEGER NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
+      roommate_id INTEGER NOT NULL REFERENCES roommates(id),
+      share_cents INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS settlements (
+      id SERIAL PRIMARY KEY,
+      from_roommate_id INTEGER NOT NULL REFERENCES roommates(id),
+      to_roommate_id INTEGER NOT NULL REFERENCES roommates(id),
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'EUR',
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS house_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       house_name TEXT NOT NULL DEFAULT 'Shared Apartment',

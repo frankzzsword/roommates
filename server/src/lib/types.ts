@@ -11,6 +11,7 @@ export type AccountabilityState =
 export type PenaltyStatus = "open" | "waived" | "paid";
 export type PenaltyTrigger = "missed" | "skipped" | "manual";
 export type FrequencyUnit = "day" | "week" | "month";
+export type CurrencyCode = "EUR";
 
 export interface HouseSettings {
   id: number;
@@ -73,6 +74,48 @@ export interface Penalty {
   settledAt: string | null;
   roommateName: string;
   ruleTitle: string | null;
+}
+
+export interface ExpenseShare {
+  expenseId: number;
+  roommateId: number;
+  roommateName: string;
+  shareCents: number;
+}
+
+export interface Expense {
+  id: number;
+  title: string;
+  amountCents: number;
+  currency: CurrencyCode;
+  paidByRoommateId: number;
+  paidByRoommateName: string;
+  note: string | null;
+  createdAt: string;
+  excludedRoommateIds: number[];
+  excludedRoommateNames: string[];
+  shares: ExpenseShare[];
+}
+
+export interface Settlement {
+  id: number;
+  fromRoommateId: number;
+  fromRoommateName: string;
+  toRoommateId: number;
+  toRoommateName: string;
+  amountCents: number;
+  currency: CurrencyCode;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface BalanceEntry {
+  fromRoommateId: number;
+  fromRoommateName: string;
+  toRoommateId: number;
+  toRoommateName: string;
+  amountCents: number;
+  currency: CurrencyCode;
 }
 
 export interface Chore {
@@ -165,6 +208,9 @@ export interface HouseholdSnapshot {
   events: EventLogEntry[];
   penaltyRules: PenaltyRule[];
   penalties: Penalty[];
+  expenses: Expense[];
+  settlements: Settlement[];
+  balances: BalanceEntry[];
 }
 
 export interface CommandResult {

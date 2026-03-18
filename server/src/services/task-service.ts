@@ -5,7 +5,10 @@ import type {
   Assignment,
   AssignmentResolutionType,
   AssignmentStatus,
+  BalanceEntry,
   Chore,
+  Expense,
+  ExpenseShare,
   EventLogEntry,
   FrequencyUnit,
   HouseSettings,
@@ -14,6 +17,7 @@ import type {
   PenaltyStatus,
   Roommate,
   RoommateSummary,
+  Settlement,
   TaskMode
 } from "../lib/types.js";
 
@@ -1702,6 +1706,355 @@ export function updatePenalty(
 
   recalculatePenaltyBalance(existing.roommateId);
   return getPenaltyById(id);
+}
+
+function distributeExpenseShares(amountCents: number, roommateIds: number[]) {
+  const included = [...new Set(roommateIds)].sort((left, right) => left - right);
+  if (included.length === 0) {
+    throw new Error("At least one roommate must be included.");
+  }
+
+  const baseShare = Math.floor(amountCents / included.length);
+  let remainder = amountCents - baseShare * included.length;
+
+  return included.map((roommateId) => {
+    const shareCents = baseShare + (remainder > 0 ? 1 : 0);
+    remainder = Math.max(0, remainder - 1);
+    return { roommateId, shareCents };
+  });
+}
+
+export function getExpenseById(id: number) {
+  const expenseRow = db
+    .prepare(
+      `
+      SELECT
+        expenses.id,
+        expenses.title,
+        expenses.amount_cents as amountCents,
+        expenses.currency,
+        expenses.paid_by_roommate_id as paidByRoommateId,
+        payer.name as paidByRoommateName,
+        expenses.note,
+        expenses.created_at as createdAt
+      FROM expenses
+      INNER JOIN roommates AS payer ON payer.id = expenses.paid_by_roommate_id
+      WHERE expenses.id = ?
+      LIMIT 1
+    `
+    )
+    .get(id) as
+    | {
+        id: number;
+        title: string;
+        amountCents: number;
+        currency: "EUR";
+        paidByRoommateId: number;
+        paidByRoommateName: string;
+        note: string | null;
+        createdAt: string;
+      }
+    | undefined;
+
+  if (!expenseRow) {
+    return null;
+  }
+
+  const shares = db
+    .prepare(
+      `
+      SELECT
+        expense_shares.expense_id as expenseId,
+        expense_shares.roommate_id as roommateId,
+        roommates.name as roommateName,
+        expense_shares.share_cents as shareCents
+      FROM expense_shares
+      INNER JOIN roommates ON roommates.id = expense_shares.roommate_id
+      WHERE expense_shares.expense_id = ?
+      ORDER BY roommates.sort_order, roommates.id
+    `
+    )
+    .all(id) as ExpenseShare[];
+
+  const includedIds = new Set(shares.map((share) => share.roommateId));
+  const excludedRows = db
+    .prepare(
+      `
+      SELECT id, name
+      FROM roommates
+      WHERE is_active = 1
+        AND id NOT IN (
+          SELECT roommate_id
+          FROM expense_shares
+          WHERE expense_id = ?
+        )
+      ORDER BY sort_order, id
+    `
+    )
+    .all(id) as Array<{ id: number; name: string }>;
+
+  return {
+    ...expenseRow,
+    excludedRoommateIds: excludedRows
+      .map((roommate) => roommate.id)
+      .filter((roommateId) => !includedIds.has(roommateId)),
+    excludedRoommateNames: excludedRows.map((roommate) => roommate.name),
+    shares
+  } satisfies Expense;
+}
+
+export function listExpenses(): Expense[] {
+  const expenseIds = db
+    .prepare(
+      `
+      SELECT id
+      FROM expenses
+      ORDER BY created_at DESC, id DESC
+    `
+    )
+    .all() as Array<{ id: number }>;
+
+  return expenseIds
+    .map((row) => getExpenseById(row.id))
+    .filter((expense): expense is Expense => Boolean(expense));
+}
+
+export function createExpense(input: {
+  title: string;
+  amountCents: number;
+  paidByRoommateId: number;
+  note?: string | null;
+  includedRoommateIds: number[];
+}) {
+  const title = input.title.trim();
+  if (!title) {
+    throw new Error("Expense title is required.");
+  }
+
+  if (!Number.isFinite(input.amountCents) || input.amountCents <= 0) {
+    throw new Error("Expense amount must be greater than zero.");
+  }
+
+  const shares = distributeExpenseShares(input.amountCents, input.includedRoommateIds);
+  const result = db
+    .prepare(
+      `
+      INSERT INTO expenses (
+        title,
+        amount_cents,
+        currency,
+        paid_by_roommate_id,
+        note,
+        created_at
+      )
+      VALUES (@title, @amountCents, 'EUR', @paidByRoommateId, @note, CURRENT_TIMESTAMP)
+    `
+    )
+    .run({
+      title,
+      amountCents: input.amountCents,
+      paidByRoommateId: input.paidByRoommateId,
+      note: input.note ?? null
+    });
+
+  const expenseId = Number(result.lastInsertRowid);
+
+  for (const share of shares) {
+    db.prepare(
+      `
+      INSERT INTO expense_shares (expense_id, roommate_id, share_cents)
+      VALUES (@expenseId, @roommateId, @shareCents)
+    `
+    ).run({
+      expenseId,
+      roommateId: share.roommateId,
+      shareCents: share.shareCents
+    });
+  }
+
+  const expense = getExpenseById(expenseId);
+  if (!expense) {
+    return null;
+  }
+
+  addEventLog({
+    roommateId: input.paidByRoommateId,
+    assignmentId: null,
+    eventType: "EXPENSE_ADDED",
+    payload: JSON.stringify({
+      title: expense.title,
+      amountCents: expense.amountCents,
+      excludedRoommateIds: expense.excludedRoommateIds
+    })
+  });
+
+  return expense;
+}
+
+export function listSettlements(): Settlement[] {
+  return db
+    .prepare(
+      `
+      SELECT
+        settlements.id,
+        settlements.from_roommate_id as fromRoommateId,
+        sender.name as fromRoommateName,
+        settlements.to_roommate_id as toRoommateId,
+        receiver.name as toRoommateName,
+        settlements.amount_cents as amountCents,
+        settlements.currency,
+        settlements.note,
+        settlements.created_at as createdAt
+      FROM settlements
+      INNER JOIN roommates AS sender ON sender.id = settlements.from_roommate_id
+      INNER JOIN roommates AS receiver ON receiver.id = settlements.to_roommate_id
+      ORDER BY settlements.created_at DESC, settlements.id DESC
+    `
+    )
+    .all() as Settlement[];
+}
+
+export function createSettlement(input: {
+  fromRoommateId: number;
+  toRoommateId: number;
+  amountCents: number;
+  note?: string | null;
+}) {
+  if (!Number.isFinite(input.amountCents) || input.amountCents <= 0) {
+    throw new Error("Settlement amount must be greater than zero.");
+  }
+
+  const result = db
+    .prepare(
+      `
+      INSERT INTO settlements (
+        from_roommate_id,
+        to_roommate_id,
+        amount_cents,
+        currency,
+        note,
+        created_at
+      )
+      VALUES (@fromRoommateId, @toRoommateId, @amountCents, 'EUR', @note, CURRENT_TIMESTAMP)
+    `
+    )
+    .run({
+      fromRoommateId: input.fromRoommateId,
+      toRoommateId: input.toRoommateId,
+      amountCents: input.amountCents,
+      note: input.note ?? null
+    });
+
+  const settlement = db
+    .prepare(
+      `
+      SELECT
+        settlements.id,
+        settlements.from_roommate_id as fromRoommateId,
+        sender.name as fromRoommateName,
+        settlements.to_roommate_id as toRoommateId,
+        receiver.name as toRoommateName,
+        settlements.amount_cents as amountCents,
+        settlements.currency,
+        settlements.note,
+        settlements.created_at as createdAt
+      FROM settlements
+      INNER JOIN roommates AS sender ON sender.id = settlements.from_roommate_id
+      INNER JOIN roommates AS receiver ON receiver.id = settlements.to_roommate_id
+      WHERE settlements.id = ?
+    `
+    )
+    .get(Number(result.lastInsertRowid)) as Settlement | undefined;
+
+  addEventLog({
+    roommateId: input.fromRoommateId,
+    assignmentId: null,
+    eventType: "SETTLEMENT_ADDED",
+    payload: JSON.stringify({
+      toRoommateId: input.toRoommateId,
+      amountCents: input.amountCents
+    })
+  });
+
+  return settlement ?? null;
+}
+
+export function listBalances(): BalanceEntry[] {
+  const netByRoommate = new Map<number, number>();
+  const nameByRoommate = new Map<number, string>();
+
+  for (const roommate of listRoommates()) {
+    netByRoommate.set(roommate.id, 0);
+    nameByRoommate.set(roommate.id, roommate.name);
+  }
+
+  for (const expense of listExpenses()) {
+    netByRoommate.set(
+      expense.paidByRoommateId,
+      (netByRoommate.get(expense.paidByRoommateId) ?? 0) + expense.amountCents
+    );
+
+    for (const share of expense.shares) {
+      netByRoommate.set(
+        share.roommateId,
+        (netByRoommate.get(share.roommateId) ?? 0) - share.shareCents
+      );
+    }
+  }
+
+  for (const settlement of listSettlements()) {
+    netByRoommate.set(
+      settlement.fromRoommateId,
+      (netByRoommate.get(settlement.fromRoommateId) ?? 0) + settlement.amountCents
+    );
+    netByRoommate.set(
+      settlement.toRoommateId,
+      (netByRoommate.get(settlement.toRoommateId) ?? 0) - settlement.amountCents
+    );
+  }
+
+  const creditors = Array.from(netByRoommate.entries())
+    .filter(([, amount]) => amount > 0)
+    .map(([roommateId, amount]) => ({ roommateId, amount }))
+    .sort((left, right) => right.amount - left.amount);
+  const debtors = Array.from(netByRoommate.entries())
+    .filter(([, amount]) => amount < 0)
+    .map(([roommateId, amount]) => ({ roommateId, amount: Math.abs(amount) }))
+    .sort((left, right) => right.amount - left.amount);
+
+  const balances: BalanceEntry[] = [];
+  let creditorIndex = 0;
+  let debtorIndex = 0;
+
+  while (creditorIndex < creditors.length && debtorIndex < debtors.length) {
+    const creditor = creditors[creditorIndex];
+    const debtor = debtors[debtorIndex];
+    const amountCents = Math.min(creditor.amount, debtor.amount);
+
+    if (amountCents > 0) {
+      balances.push({
+        fromRoommateId: debtor.roommateId,
+        fromRoommateName: nameByRoommate.get(debtor.roommateId) ?? "Roommate",
+        toRoommateId: creditor.roommateId,
+        toRoommateName: nameByRoommate.get(creditor.roommateId) ?? "Roommate",
+        amountCents,
+        currency: "EUR"
+      });
+    }
+
+    creditor.amount -= amountCents;
+    debtor.amount -= amountCents;
+
+    if (creditor.amount === 0) {
+      creditorIndex += 1;
+    }
+
+    if (debtor.amount === 0) {
+      debtorIndex += 1;
+    }
+  }
+
+  return balances;
 }
 
 export function addEventLog(params: {
