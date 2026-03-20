@@ -583,14 +583,19 @@ export function getSharedHouseSnapshot(snapshot: HouseholdSnapshot): SharedHouse
   };
 }
 
-export function getNotificationFeed(snapshot: HouseholdSnapshot, roommateId?: string, limit = 6): NotificationFeedItem[] {
-  const hiddenEventTypes = new Set([
-    "WHATSAPP_ROUTE_INTERPRETED",
-    "CONVERSATION_MESSAGE_SENT",
-    "HANDOFF_MESSAGE_SENT",
-    "WHATSAPP_WELCOME_SENT",
-    "HANDOFF_MESSAGE_FAILED"
-  ]);
+export function getNotificationFeed(
+  snapshot: HouseholdSnapshot,
+  roommateId?: string,
+  limit = 6,
+  options?: { includeTransportLogs?: boolean }
+): NotificationFeedItem[] {
+  const hiddenEventTypes = new Set(["WHATSAPP_ROUTE_INTERPRETED"]);
+  if (!options?.includeTransportLogs) {
+    hiddenEventTypes.add("CONVERSATION_MESSAGE_SENT");
+    hiddenEventTypes.add("HANDOFF_MESSAGE_SENT");
+    hiddenEventTypes.add("WHATSAPP_WELCOME_SENT");
+    hiddenEventTypes.add("HANDOFF_MESSAGE_FAILED");
+  }
 
   return snapshot.activity
     .filter((entry) => {
