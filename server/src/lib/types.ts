@@ -151,6 +151,8 @@ export interface Assignment {
   choreId: number;
   roommateId: number;
   dueDate: string;
+  windowStartDate: string | null;
+  windowEndDate: string | null;
   status: AssignmentStatus;
   statusNote: string | null;
   resolutionType: AssignmentResolutionType | null;
@@ -194,6 +196,7 @@ export interface Assignment {
 
 export interface EventLogEntry {
   id: number;
+  assignmentId: number | null;
   eventType: string;
   payloadJson: string | null;
   createdAt: string;

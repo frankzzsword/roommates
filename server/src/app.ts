@@ -1,8 +1,7 @@
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
+import { config } from "./config.js";
 import { analyzeHouseholdFlowWithAi, suggestSubtasksWithAi } from "./services/ai-service.js";
-import { initializeDatabase } from "./db/init.js";
-import "./db/seed.js";
 import {
   createAssignmentRecord,
   createChoreRecord,
@@ -11,8 +10,8 @@ import {
   createPenaltyRuleRecord,
   createRoommateRecord,
   createSettlementRecord,
-  getHouseholdSnapshot,
   sendTestReminder,
+  getHouseholdSnapshotAsync,
   updateAssignmentRecord,
   updateChoreRecord,
   updateHouseSettingsRecord,
@@ -23,14 +22,16 @@ import {
 import { processInboundMessage } from "./services/message-service.js";
 import { buildTwimlMessage } from "./services/twilio-service.js";
 import {
-  findRoommateByCredentials,
-  getRoommateById,
-  listAssignments,
-  listRecentEvents,
-  listRoommates
-} from "./services/task-service.js";
-
-initializeDatabase();
+  createAssignmentAsync,
+  createExpenseAsync,
+  createSettlementAsync,
+  findRoommateByCredentialsAsync,
+  getRoommateByIdAsync,
+  listAssignmentsAsync,
+  listRecentEventsAsync,
+  listRoommatesAsync,
+  updateAssignmentAsync
+} from "./services/task-service-async.js";
 
 function asNumber(value: unknown) {
   if (value === null || value === undefined || value === "") {
@@ -167,23 +168,39 @@ export function createApp() {
     });
   });
 
-  app.get("/api/household", (_req, res) => {
-    res.json(getHouseholdSnapshot());
+  app.get("/api/household", async (_req, res, next) => {
+    try {
+      res.json(await getHouseholdSnapshotAsync());
+    } catch (error) {
+      next(error);
+    }
   });
 
-  app.get("/api/events", (_req, res) => {
-    res.json({ events: listRecentEvents(25) });
+  app.get("/api/events", async (_req, res, next) => {
+    try {
+      res.json({ events: await listRecentEventsAsync(25) });
+    } catch (error) {
+      next(error);
+    }
   });
 
-  app.get("/api/assignments", (_req, res) => {
-    res.json({ assignments: listAssignments() });
+  app.get("/api/assignments", async (_req, res, next) => {
+    try {
+      res.json({ assignments: await listAssignmentsAsync() });
+    } catch (error) {
+      next(error);
+    }
   });
 
-  app.get("/api/roommates", (_req, res) => {
-    res.json({ roommates: listRoommates() });
+  app.get("/api/roommates", async (_req, res, next) => {
+    try {
+      res.json({ roommates: await listRoommatesAsync() });
+    } catch (error) {
+      next(error);
+    }
   });
 
-  app.post("/api/login", (req, res) => {
+  app.post("/api/login", async (req, res, next) => {
     const name = asRequiredString(req.body.name);
     const password = asRequiredString(req.body.password);
 
@@ -192,258 +209,333 @@ export function createApp() {
       return;
     }
 
-    const roommate = findRoommateByCredentials(name, password);
-    if (!roommate) {
-      res.status(401).json({ error: "Incorrect name or password." });
+    if (
+      name.toLowerCase() === config.adminLoginName.toLowerCase() &&
+      password === config.adminLoginPassword
+    ) {
+      res.json({
+        accountType: "admin",
+        displayName: config.adminDisplayName
+      });
       return;
     }
 
-    res.json({ roommate });
-  });
+    try {
+      const roommate = await findRoommateByCredentialsAsync(name, password);
+      if (!roommate) {
+        res.status(401).json({ error: "Incorrect name or password." });
+        return;
+      }
 
-  app.post("/api/roommates", (req, res) => {
-    const roommate = createRoommateRecord({
-      name: String(req.body.name ?? ""),
-      whatsappNumber: String(req.body.whatsappNumber ?? ""),
-      isActive: asBooleanInt(req.body.isActive),
-      sortOrder: asNumber(req.body.sortOrder),
-      reminderEnabled: asBooleanInt(req.body.reminderEnabled),
-      reminderHour: asNumber(req.body.reminderHour),
-      reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
-      notes: asNullableString(req.body.notes)
-    });
-
-    res.status(201).json({ roommate });
-  });
-
-  app.patch("/api/roommates/:id", (req, res) => {
-    const roommate = updateRoommateRecord(Number(req.params.id), {
-      name: asString(req.body.name),
-      whatsappNumber: asString(req.body.whatsappNumber),
-      isActive: asBooleanInt(req.body.isActive),
-      sortOrder: asNumber(req.body.sortOrder),
-      reminderEnabled: asBooleanInt(req.body.reminderEnabled),
-      reminderHour: asNumber(req.body.reminderHour),
-      reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
-      notes: asNullableString(req.body.notes)
-    });
-
-    res.json({ roommate });
-  });
-
-  app.post("/api/chores", (req, res) => {
-    const chore = createChoreRecord({
-      title: String(req.body.title ?? ""),
-      description: asNullableString(req.body.description),
-      cadence: asString(req.body.cadence) ?? "",
-      area: asString(req.body.area),
-      points: asPositiveNumber(req.body.points),
-      frequencyInterval: asPositiveNumber(req.body.frequencyInterval),
-      frequencyUnit: asFrequencyUnit(req.body.frequencyUnit),
-      taskMode: asTaskMode(req.body.taskMode),
-      softReminderAfterHours: asPositiveNumber(req.body.softReminderAfterHours),
-      repeatReminderEveryHours: asPositiveNumber(req.body.repeatReminderEveryHours),
-      escalateAfterHours: asPositiveNumber(req.body.escalateAfterHours),
-      advanceRotationOn: asAdvanceRotationOn(req.body.advanceRotationOn),
-      isOptional: asBooleanInt(req.body.isOptional),
-      parentChoreId: asNullableNumber(req.body.parentChoreId),
-      defaultDueHour: asNumber(req.body.defaultDueHour),
-      defaultAssigneeId: asNullableNumber(req.body.defaultAssigneeId),
-      isActive: asBooleanInt(req.body.isActive),
-      reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
-      penaltyRuleId: asNullableNumber(req.body.penaltyRuleId)
-    });
-
-    res.status(201).json({ chore });
-  });
-
-  app.patch("/api/chores/:id", (req, res) => {
-    const chore = updateChoreRecord(Number(req.params.id), {
-      title: asString(req.body.title),
-      description: asNullableString(req.body.description),
-      cadence: asString(req.body.cadence),
-      area: asString(req.body.area),
-      points: asPositiveNumber(req.body.points),
-      frequencyInterval: asPositiveNumber(req.body.frequencyInterval),
-      frequencyUnit: asFrequencyUnit(req.body.frequencyUnit),
-      taskMode: asTaskMode(req.body.taskMode),
-      softReminderAfterHours: asPositiveNumber(req.body.softReminderAfterHours),
-      repeatReminderEveryHours: asPositiveNumber(req.body.repeatReminderEveryHours),
-      escalateAfterHours: asPositiveNumber(req.body.escalateAfterHours),
-      advanceRotationOn: asAdvanceRotationOn(req.body.advanceRotationOn),
-      isOptional: asBooleanInt(req.body.isOptional),
-      parentChoreId: asNullableNumber(req.body.parentChoreId),
-      defaultDueHour: asNumber(req.body.defaultDueHour),
-      defaultAssigneeId: asNullableNumber(req.body.defaultAssigneeId),
-      isActive: asBooleanInt(req.body.isActive),
-      reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
-      penaltyRuleId: asNullableNumber(req.body.penaltyRuleId)
-    });
-
-    res.json({ chore });
-  });
-
-  app.post("/api/assignments", (req, res) => {
-    const assignment = createAssignmentRecord({
-      choreId: Number(req.body.choreId),
-      roommateId: Number(req.body.roommateId),
-      dueDate: String(req.body.dueDate),
-      status: asString(req.body.status) as
-        | "pending"
-        | "done"
-        | "skipped"
-        | undefined,
-      statusNote: asNullableString(req.body.statusNote),
-      resolutionType: asResolutionType(req.body.resolutionType),
-      responsibleRoommateId: asNumber(req.body.responsibleRoommateId),
-      rescuedByRoommateId: asNullableNumber(req.body.rescuedByRoommateId),
-      escalationLevel: asNumber(req.body.escalationLevel),
-      strikeApplied: asNumber(req.body.strikeApplied),
-      rescueCreditApplied: asNumber(req.body.rescueCreditApplied)
-    });
-
-    res.status(201).json({ assignment });
-  });
-
-  app.patch("/api/assignments/:id", (req, res) => {
-    const assignment = updateAssignmentRecord(Number(req.params.id), {
-      choreId: asNumber(req.body.choreId),
-      roommateId: asNumber(req.body.roommateId),
-      dueDate: asString(req.body.dueDate),
-      status: asString(req.body.status) as
-        | "pending"
-        | "done"
-        | "skipped"
-        | undefined,
-      statusNote: asNullableString(req.body.statusNote),
-      resolutionType: asResolutionType(req.body.resolutionType),
-      responsibleRoommateId: asNumber(req.body.responsibleRoommateId),
-      rescuedByRoommateId: asNullableNumber(req.body.rescuedByRoommateId),
-      escalationLevel: asNumber(req.body.escalationLevel),
-      strikeApplied: asNumber(req.body.strikeApplied),
-      rescueCreditApplied: asNumber(req.body.rescueCreditApplied)
-    });
-
-    res.json({ assignment });
-  });
-
-  app.patch("/api/settings", (req, res) => {
-    const settings = updateHouseSettingsRecord({
-      houseName: asString(req.body.houseName),
-      timezone: asString(req.body.timezone),
-      autoRemindersEnabled: asBooleanInt(req.body.autoRemindersEnabled),
-      weeklySummaryEnabled: asBooleanInt(req.body.weeklySummaryEnabled),
-      summaryDay: asString(req.body.summaryDay),
-      summaryHour: asNumber(req.body.summaryHour),
-      defaultPenaltyAmountCents: asNumber(req.body.defaultPenaltyAmountCents),
-      defaultReminderLeadMinutes: asNumber(req.body.defaultReminderLeadMinutes),
-      penaltyLabel: asString(req.body.penaltyLabel),
-      weeklyAchievementLabel: asString(req.body.weeklyAchievementLabel),
-      monthlyAchievementLabel: asString(req.body.monthlyAchievementLabel)
-    });
-
-    res.json({ settings });
-  });
-
-  app.post("/api/penalty-rules", (req, res) => {
-    const penaltyRule = createPenaltyRuleRecord({
-      title: String(req.body.title ?? ""),
-      description: asNullableString(req.body.description),
-      triggerType: asString(req.body.triggerType) as
-        | "missed"
-        | "skipped"
-        | "manual"
-        | undefined,
-      amountCents: Number(req.body.amountCents ?? 0),
-      isActive: asBooleanInt(req.body.isActive)
-    });
-
-    res.status(201).json({ penaltyRule });
-  });
-
-  app.patch("/api/penalty-rules/:id", (req, res) => {
-    const penaltyRule = updatePenaltyRuleRecord(Number(req.params.id), {
-      title: asString(req.body.title),
-      description: asNullableString(req.body.description),
-      triggerType: asString(req.body.triggerType) as
-        | "missed"
-        | "skipped"
-        | "manual"
-        | undefined,
-      amountCents: asNumber(req.body.amountCents),
-      isActive: asBooleanInt(req.body.isActive)
-    });
-
-    res.json({ penaltyRule });
-  });
-
-  app.post("/api/penalties", (req, res) => {
-    const penalty = createPenaltyRecord({
-      roommateId: Number(req.body.roommateId),
-      assignmentId: asNullableNumber(req.body.assignmentId),
-      ruleId: asNullableNumber(req.body.ruleId),
-      reason: asNullableString(req.body.reason),
-      amountCents: asNumber(req.body.amountCents),
-      status: asString(req.body.status) as "open" | "waived" | "paid" | undefined
-    });
-
-    res.status(201).json({ penalty });
-  });
-
-  app.post("/api/expenses", (req, res) => {
-    const title = asRequiredString(req.body.title);
-    const amountCents = asPositiveNumber(req.body.amountCents);
-    const paidByRoommateId = asPositiveNumber(req.body.paidByRoommateId);
-    const includedRoommateIds = Array.isArray(req.body.includedRoommateIds)
-      ? req.body.includedRoommateIds
-          .map((value: unknown) => Number(value))
-          .filter(Number.isFinite)
-      : [];
-
-    if (!title || !amountCents || !paidByRoommateId || includedRoommateIds.length === 0) {
-      res.status(400).json({ error: "Title, amount, payer, and participants are required." });
-      return;
+      res.json({
+        accountType: "roommate",
+        displayName: roommate.name,
+        roommate
+      });
+    } catch (error) {
+      next(error);
     }
-
-    const expense = createExpenseRecord({
-      title,
-      amountCents,
-      paidByRoommateId,
-      note: asNullableString(req.body.note),
-      includedRoommateIds
-    });
-
-    res.status(201).json({ expense });
   });
 
-  app.post("/api/settlements", (req, res) => {
-    const fromRoommateId = asPositiveNumber(req.body.fromRoommateId);
-    const toRoommateId = asPositiveNumber(req.body.toRoommateId);
-    const amountCents = asPositiveNumber(req.body.amountCents);
+  app.post("/api/roommates", async (req, res, next) => {
+    try {
+      const roommate = await createRoommateRecord({
+        name: String(req.body.name ?? ""),
+        whatsappNumber: String(req.body.whatsappNumber ?? ""),
+        isActive: asBooleanInt(req.body.isActive),
+        sortOrder: asNumber(req.body.sortOrder),
+        reminderEnabled: asBooleanInt(req.body.reminderEnabled),
+        reminderHour: asNumber(req.body.reminderHour),
+        reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
+        notes: asNullableString(req.body.notes)
+      });
 
-    if (!fromRoommateId || !toRoommateId || !amountCents) {
-      res.status(400).json({ error: "Settlement requires sender, receiver, and amount." });
-      return;
+      res.status(201).json({ roommate });
+    } catch (error) {
+      next(error);
     }
-
-    const settlement = createSettlementRecord({
-      fromRoommateId,
-      toRoommateId,
-      amountCents,
-      note: asNullableString(req.body.note)
-    });
-
-    res.status(201).json({ settlement });
   });
 
-  app.patch("/api/penalties/:id", (req, res) => {
-    const penalty = updatePenaltyRecord(Number(req.params.id), {
-      reason: asNullableString(req.body.reason),
-      amountCents: asNumber(req.body.amountCents),
-      status: asString(req.body.status) as "open" | "waived" | "paid" | undefined
-    });
+  app.patch("/api/roommates/:id", async (req, res, next) => {
+    try {
+      const roommate = await updateRoommateRecord(Number(req.params.id), {
+        name: asString(req.body.name),
+        whatsappNumber: asString(req.body.whatsappNumber),
+        isActive: asBooleanInt(req.body.isActive),
+        sortOrder: asNumber(req.body.sortOrder),
+        reminderEnabled: asBooleanInt(req.body.reminderEnabled),
+        reminderHour: asNumber(req.body.reminderHour),
+        reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
+        notes: asNullableString(req.body.notes)
+      });
 
-    res.json({ penalty });
+      res.json({ roommate });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/chores", async (req, res, next) => {
+    try {
+      const chore = await createChoreRecord({
+        title: String(req.body.title ?? ""),
+        description: asNullableString(req.body.description),
+        cadence: asString(req.body.cadence) ?? "",
+        area: asString(req.body.area),
+        points: asPositiveNumber(req.body.points),
+        frequencyInterval: asPositiveNumber(req.body.frequencyInterval),
+        frequencyUnit: asFrequencyUnit(req.body.frequencyUnit),
+        taskMode: asTaskMode(req.body.taskMode),
+        softReminderAfterHours: asPositiveNumber(req.body.softReminderAfterHours),
+        repeatReminderEveryHours: asPositiveNumber(req.body.repeatReminderEveryHours),
+        escalateAfterHours: asPositiveNumber(req.body.escalateAfterHours),
+        advanceRotationOn: asAdvanceRotationOn(req.body.advanceRotationOn),
+        isOptional: asBooleanInt(req.body.isOptional),
+        parentChoreId: asNullableNumber(req.body.parentChoreId),
+        defaultDueHour: asNumber(req.body.defaultDueHour),
+        defaultAssigneeId: asNullableNumber(req.body.defaultAssigneeId),
+        isActive: asBooleanInt(req.body.isActive),
+        reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
+        penaltyRuleId: asNullableNumber(req.body.penaltyRuleId)
+      });
+
+      res.status(201).json({ chore });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/chores/:id", async (req, res, next) => {
+    try {
+      const chore = await updateChoreRecord(Number(req.params.id), {
+        title: asString(req.body.title),
+        description: asNullableString(req.body.description),
+        cadence: asString(req.body.cadence),
+        area: asString(req.body.area),
+        points: asPositiveNumber(req.body.points),
+        frequencyInterval: asPositiveNumber(req.body.frequencyInterval),
+        frequencyUnit: asFrequencyUnit(req.body.frequencyUnit),
+        taskMode: asTaskMode(req.body.taskMode),
+        softReminderAfterHours: asPositiveNumber(req.body.softReminderAfterHours),
+        repeatReminderEveryHours: asPositiveNumber(req.body.repeatReminderEveryHours),
+        escalateAfterHours: asPositiveNumber(req.body.escalateAfterHours),
+        advanceRotationOn: asAdvanceRotationOn(req.body.advanceRotationOn),
+        isOptional: asBooleanInt(req.body.isOptional),
+        parentChoreId: asNullableNumber(req.body.parentChoreId),
+        defaultDueHour: asNumber(req.body.defaultDueHour),
+        defaultAssigneeId: asNullableNumber(req.body.defaultAssigneeId),
+        isActive: asBooleanInt(req.body.isActive),
+        reminderLeadMinutes: asNumber(req.body.reminderLeadMinutes),
+        penaltyRuleId: asNullableNumber(req.body.penaltyRuleId)
+      });
+
+      res.json({ chore });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/assignments", async (req, res, next) => {
+    try {
+      const assignment = await createAssignmentAsync({
+        choreId: Number(req.body.choreId),
+        roommateId: Number(req.body.roommateId),
+        dueDate: String(req.body.dueDate),
+        windowStartDate: asNullableString(req.body.windowStartDate),
+        windowEndDate: asNullableString(req.body.windowEndDate),
+        status: asString(req.body.status) as
+          | "pending"
+          | "done"
+          | "skipped"
+          | undefined,
+        statusNote: asNullableString(req.body.statusNote),
+        resolutionType: asResolutionType(req.body.resolutionType),
+        responsibleRoommateId: asNumber(req.body.responsibleRoommateId),
+        rescuedByRoommateId: asNullableNumber(req.body.rescuedByRoommateId),
+        escalationLevel: asNumber(req.body.escalationLevel),
+        strikeApplied: asNumber(req.body.strikeApplied),
+        rescueCreditApplied: asNumber(req.body.rescueCreditApplied)
+      });
+
+      res.status(201).json({ assignment });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/assignments/:id", async (req, res, next) => {
+    try {
+      const assignment = await updateAssignmentAsync(Number(req.params.id), {
+        choreId: asNumber(req.body.choreId),
+        roommateId: asNumber(req.body.roommateId),
+        dueDate: asString(req.body.dueDate),
+        windowStartDate: asNullableString(req.body.windowStartDate),
+        windowEndDate: asNullableString(req.body.windowEndDate),
+        status: asString(req.body.status) as
+          | "pending"
+          | "done"
+          | "skipped"
+          | undefined,
+        statusNote: asNullableString(req.body.statusNote),
+        resolutionType: asResolutionType(req.body.resolutionType),
+        responsibleRoommateId: asNumber(req.body.responsibleRoommateId),
+        rescuedByRoommateId: asNullableNumber(req.body.rescuedByRoommateId),
+        escalationLevel: asNumber(req.body.escalationLevel),
+        strikeApplied: asNumber(req.body.strikeApplied),
+        rescueCreditApplied: asNumber(req.body.rescueCreditApplied)
+      });
+
+      res.json({ assignment });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/settings", async (req, res, next) => {
+    try {
+      const settings = await updateHouseSettingsRecord({
+        houseName: asString(req.body.houseName),
+        timezone: asString(req.body.timezone),
+        autoRemindersEnabled: asBooleanInt(req.body.autoRemindersEnabled),
+        weeklySummaryEnabled: asBooleanInt(req.body.weeklySummaryEnabled),
+        summaryDay: asString(req.body.summaryDay),
+        summaryHour: asNumber(req.body.summaryHour),
+        defaultPenaltyAmountCents: asNumber(req.body.defaultPenaltyAmountCents),
+        defaultReminderLeadMinutes: asNumber(req.body.defaultReminderLeadMinutes),
+        penaltyLabel: asString(req.body.penaltyLabel),
+        weeklyAchievementLabel: asString(req.body.weeklyAchievementLabel),
+        monthlyAchievementLabel: asString(req.body.monthlyAchievementLabel)
+      });
+
+      res.json({ settings });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/penalty-rules", async (req, res, next) => {
+    try {
+      const penaltyRule = await createPenaltyRuleRecord({
+        title: String(req.body.title ?? ""),
+        description: asNullableString(req.body.description),
+        triggerType: asString(req.body.triggerType) as
+          | "missed"
+          | "skipped"
+          | "manual"
+          | undefined,
+        amountCents: Number(req.body.amountCents ?? 0),
+        isActive: asBooleanInt(req.body.isActive)
+      });
+
+      res.status(201).json({ penaltyRule });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/penalty-rules/:id", async (req, res, next) => {
+    try {
+      const penaltyRule = await updatePenaltyRuleRecord(Number(req.params.id), {
+        title: asString(req.body.title),
+        description: asNullableString(req.body.description),
+        triggerType: asString(req.body.triggerType) as
+          | "missed"
+          | "skipped"
+          | "manual"
+          | undefined,
+        amountCents: asNumber(req.body.amountCents),
+        isActive: asBooleanInt(req.body.isActive)
+      });
+
+      res.json({ penaltyRule });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/penalties", async (req, res, next) => {
+    try {
+      const penalty = await createPenaltyRecord({
+        roommateId: Number(req.body.roommateId),
+        assignmentId: asNullableNumber(req.body.assignmentId),
+        ruleId: asNullableNumber(req.body.ruleId),
+        reason: asNullableString(req.body.reason),
+        amountCents: asNumber(req.body.amountCents),
+        status: asString(req.body.status) as "open" | "waived" | "paid" | undefined
+      });
+
+      res.status(201).json({ penalty });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/expenses", async (req, res, next) => {
+    try {
+      const title = asRequiredString(req.body.title);
+      const amountCents = asPositiveNumber(req.body.amountCents);
+      const paidByRoommateId = asPositiveNumber(req.body.paidByRoommateId);
+      const includedRoommateIds = Array.isArray(req.body.includedRoommateIds)
+        ? req.body.includedRoommateIds
+            .map((value: unknown) => Number(value))
+            .filter(Number.isFinite)
+        : [];
+
+      if (!title || !amountCents || !paidByRoommateId || includedRoommateIds.length === 0) {
+        res.status(400).json({ error: "Title, amount, payer, and participants are required." });
+        return;
+      }
+
+      const expense = await createExpenseAsync({
+        title,
+        amountCents,
+        paidByRoommateId,
+        note: asNullableString(req.body.note),
+        includedRoommateIds
+      });
+
+      res.status(201).json({ expense });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/settlements", async (req, res, next) => {
+    try {
+      const fromRoommateId = asPositiveNumber(req.body.fromRoommateId);
+      const toRoommateId = asPositiveNumber(req.body.toRoommateId);
+      const amountCents = asPositiveNumber(req.body.amountCents);
+
+      if (!fromRoommateId || !toRoommateId || !amountCents) {
+        res.status(400).json({ error: "Settlement requires sender, receiver, and amount." });
+        return;
+      }
+
+      const settlement = await createSettlementAsync({
+        fromRoommateId,
+        toRoommateId,
+        amountCents,
+        note: asNullableString(req.body.note)
+      });
+
+      res.status(201).json({ settlement });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/penalties/:id", async (req, res, next) => {
+    try {
+      const penalty = await updatePenaltyRecord(Number(req.params.id), {
+        reason: asNullableString(req.body.reason),
+        amountCents: asNumber(req.body.amountCents),
+        status: asString(req.body.status) as "open" | "waived" | "paid" | undefined
+      });
+
+      res.json({ penalty });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/reminders/test", async (req, res, next) => {
@@ -469,7 +561,7 @@ export function createApp() {
         return;
       }
 
-      const roommate = getRoommateById(roommateId);
+      const roommate = await getRoommateByIdAsync(roommateId);
       if (!roommate) {
         res.status(404).json({ error: "Roommate not found." });
         return;
@@ -503,7 +595,7 @@ export function createApp() {
 
   app.post("/api/ai/house-analysis", async (_req, res, next) => {
     try {
-      const result = await analyzeHouseholdFlowWithAi(getHouseholdSnapshot());
+      const result = await analyzeHouseholdFlowWithAi(await getHouseholdSnapshotAsync());
       res.json(result);
     } catch (error) {
       next(error);
@@ -519,7 +611,10 @@ export function createApp() {
 
       res.type("text/xml").send(twiml);
     } catch (error) {
-      next(error);
+      const message =
+        "Something went wrong on my side just now. Please try that again in a moment 🙂";
+      const twiml = buildTwimlMessage(message);
+      res.status(200).type("text/xml").send(twiml);
     }
   });
 

@@ -49,7 +49,7 @@ function activeRotationOrder(roommates: string[], freeName: string) {
 }
 
 async function main() {
-  initializeDatabase();
+  await initializeDatabase();
 
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -70,7 +70,7 @@ async function main() {
     },
     {
       name: "Mayssa",
-      whatsappNumber: "whatsapp:+491700000101",
+      whatsappNumber: "whatsapp:+4915759562765",
       loginPassword: "mayssa123",
       note: "Out this week, starts next week",
       reminderHour: 18,
@@ -78,7 +78,7 @@ async function main() {
     },
     {
       name: "Noah",
-      whatsappNumber: "whatsapp:+491700000102",
+      whatsappNumber: "whatsapp:+41799186472",
       loginPassword: "noah123",
       note: "Roommate",
       reminderHour: 18,
@@ -86,7 +86,7 @@ async function main() {
     },
     {
       name: "Julia",
-      whatsappNumber: "whatsapp:+491700000103",
+      whatsappNumber: "whatsapp:+491757075838",
       loginPassword: "julia123",
       note: "Roommate",
       reminderHour: 18,
@@ -94,7 +94,7 @@ async function main() {
     },
     {
       name: "Tracy",
-      whatsappNumber: "whatsapp:+491700000104",
+      whatsappNumber: "whatsapp:+491637210388",
       loginPassword: "tracy123",
       note: "Roommate",
       reminderHour: 18,
@@ -102,7 +102,7 @@ async function main() {
     },
     {
       name: "Maria",
-      whatsappNumber: "whatsapp:+491700000105",
+      whatsappNumber: "whatsapp:+48516772314",
       loginPassword: "maria123",
       note: "Roommate",
       reminderHour: 18,
@@ -110,7 +110,14 @@ async function main() {
     }
   ];
 
-  const weeklyChoreTitles = ["Bathroom", "Kitchen", "Hallway", "Living Room", "Toilet"];
+const weeklyChoreTitles = ["Bathroom", "Kitchen", "Hallway", "Living Room", "Toilet"];
+const weeklyPointsByTitle: Record<string, number> = {
+  Bathroom: 5,
+  Kitchen: 5,
+  Hallway: 3,
+  "Living Room": 3,
+  Toilet: 3
+};
 
   try {
     await client.query("BEGIN");
@@ -289,7 +296,7 @@ async function main() {
         description: `${title} cleaning window runs from Tuesday to Friday each week.`,
         cadence: "Tuesday to Friday every week",
         area: title,
-        points: 14,
+        points: weeklyPointsByTitle[title] ?? 3,
         frequencyInterval: 1,
         frequencyUnit: "week",
         taskMode: "fixed_schedule",
@@ -304,7 +311,7 @@ async function main() {
       description: "Wash and dry shared towels.",
       cadence: "Every month",
       area: "Laundry",
-      points: 8,
+      points: 15,
       frequencyInterval: 1,
       frequencyUnit: "month",
       taskMode: "fixed_schedule",
@@ -317,7 +324,7 @@ async function main() {
       description: "Take out plastic and glass recycling.",
       cadence: "Every 2 weeks",
       area: "Recycling",
-      points: 8,
+      points: 10,
       frequencyInterval: 2,
       frequencyUnit: "week",
       taskMode: "fixed_schedule",
@@ -326,12 +333,12 @@ async function main() {
     });
 
     const rollingSeeds = [
-      ["Running Dishwasher", "Start the dishwasher when it is full.", "Varun", "Kitchen", 1],
-      ["Emptying Dishwasher", "Empty the dishwasher once it is clean.", "Noah", "Kitchen", 1],
-      ["Taking Out Trash", "Take out the household trash when it is full.", "Julia", "Utilities", 2]
+      ["Running Dishwasher", "Start the dishwasher when it is full.", "Varun", "Kitchen", 0, 1],
+      ["Emptying Dishwasher", "Empty the dishwasher once it is clean.", "Noah", "Kitchen", 0, 2],
+      ["Taking Out Trash", "Take out the household trash when it is full.", "Julia", "Utilities", 1, 2]
     ] as const;
 
-    for (const [title, description, assigneeName, area, dueOffset] of rollingSeeds) {
+    for (const [title, description, assigneeName, area, dueOffset, points] of rollingSeeds) {
       const assigneeId = roommateIdsByName.get(assigneeName);
       if (!assigneeId) {
         throw new Error(`Missing rolling assignee ${assigneeName}`);
@@ -342,7 +349,7 @@ async function main() {
         description,
         cadence: "Rolling ownership",
         area,
-        points: 6,
+        points,
         frequencyInterval: 1,
         frequencyUnit: "day",
         taskMode: "rolling_until_done",

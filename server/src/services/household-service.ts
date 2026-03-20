@@ -11,56 +11,93 @@ import type {
   TaskMode
 } from "../lib/types.js";
 import {
-  addEventLog,
-  createExpense,
-  createAssignment,
-  createChore,
-  createPenalty,
-  createPenaltyRule,
-  createRoommate,
-  createSettlement,
-  getHouseSettings,
-  getOldestPendingAssignment,
-  getRoommateById,
-  listAssignments,
-  listBalances,
-  listChores,
-  listExpenses,
-  listPenalties,
-  listPenaltyRules,
-  listRecentEvents,
-  listRoommates,
-  listSettlements,
-  rescueAssignment,
-  updateAssignment,
-  updateChore,
-  updateHouseSettings,
-  updatePenalty,
-  updatePenaltyRule,
-  updateRoommate
-} from "./task-service.js";
+  addEventLogAsync,
+  createAssignmentAsync as createAssignment,
+  createChoreAsync as createChore,
+  createExpenseAsync as createExpense,
+  createPenaltyAsync as createPenalty,
+  createPenaltyRuleAsync as createPenaltyRule,
+  createRoommateAsync as createRoommate,
+  createSettlementAsync as createSettlement,
+  getHouseSettingsAsync,
+  getOldestPendingAssignmentAsync as getOldestPendingAssignment,
+  getRoommateByIdAsync as getRoommateById,
+  listAssignmentsAsync,
+  listBalancesAsync,
+  listChoresAsync,
+  listExpensesAsync,
+  listPenaltiesAsync,
+  listPenaltyRulesAsync,
+  listRecentEventsAsync,
+  listRoommatesAsync,
+  listSettlementsAsync,
+  rescueAssignmentAsync as rescueAssignment,
+  updateAssignmentAsync as updateAssignment,
+  updateChoreAsync as updateChore,
+  updateHouseSettingsAsync as updateHouseSettings,
+  updatePenaltyAsync as updatePenalty,
+  updatePenaltyRuleAsync as updatePenaltyRule,
+  updateRoommateAsync as updateRoommate
+} from "./task-service-async.js";
 import { rememberLastOutboundAssignment } from "./message-service.js";
+import { composeWhatsappConversationMessage } from "./ai-service.js";
 import {
   resolveOutboundWhatsappNumber,
   sendWhatsappMessage
 } from "./twilio-service.js";
 
-export function getHouseholdSnapshot(): HouseholdSnapshot {
+async function buildHouseholdSnapshotAsync(): Promise<HouseholdSnapshot> {
+  const [
+    settings,
+    roommates,
+    chores,
+    assignments,
+    events,
+    penaltyRules,
+    penalties,
+    expenses,
+    settlements,
+    balances
+  ] = await Promise.all([
+    getHouseSettingsAsync(),
+    listRoommatesAsync(),
+    listChoresAsync(),
+    listAssignmentsAsync(),
+    listRecentEventsAsync(50),
+    listPenaltyRulesAsync(),
+    listPenaltiesAsync(),
+    listExpensesAsync(),
+    listSettlementsAsync(),
+    listBalancesAsync()
+  ]);
+
   return {
-    settings: getHouseSettings(),
-    roommates: listRoommates(),
-    chores: listChores(),
-    assignments: listAssignments(),
-    events: listRecentEvents(50),
-    penaltyRules: listPenaltyRules(),
-    penalties: listPenalties(),
-    expenses: listExpenses(),
-    settlements: listSettlements(),
-    balances: listBalances()
+    settings,
+    roommates,
+    chores,
+    assignments,
+    events,
+    penaltyRules,
+    penalties,
+    expenses,
+    settlements,
+    balances
   };
 }
 
-export function createRoommateRecord(input: {
+function invalidateHouseholdSnapshotCache() {
+  // Snapshot caching was removed to avoid stale household state after writes.
+}
+
+export async function getHouseholdSnapshotAsync(): Promise<HouseholdSnapshot> {
+  return await buildHouseholdSnapshotAsync();
+}
+
+export function primeHouseholdSnapshotCacheAsync() {
+  // No-op now that the snapshot is built directly per request.
+}
+
+export async function createRoommateRecord(input: {
   name: string;
   whatsappNumber: string;
   isActive?: number;
@@ -70,19 +107,20 @@ export function createRoommateRecord(input: {
   reminderLeadMinutes?: number;
   notes?: string | null;
 }) {
-  const roommate = createRoommate(input);
+  const roommate = await createRoommate(input);
   if (roommate) {
-    addEventLog({
+    await addEventLogAsync({
       roommateId: roommate.id,
       assignmentId: null,
       eventType: "ROOMMATE_CREATED",
       payload: JSON.stringify({ name: roommate.name })
     });
   }
+  invalidateHouseholdSnapshotCache();
   return roommate;
 }
 
-export function updateRoommateRecord(
+export async function updateRoommateRecord(
   id: number,
   input: {
     name?: string;
@@ -95,19 +133,20 @@ export function updateRoommateRecord(
     notes?: string | null;
   }
 ) {
-  const roommate = updateRoommate(id, input);
+  const roommate = await updateRoommate(id, input);
   if (roommate) {
-    addEventLog({
+    await addEventLogAsync({
       roommateId: roommate.id,
       assignmentId: null,
       eventType: "ROOMMATE_UPDATED",
       payload: JSON.stringify(input)
     });
   }
+  invalidateHouseholdSnapshotCache();
   return roommate;
 }
 
-export function createChoreRecord(input: {
+export async function createChoreRecord(input: {
   title: string;
   description?: string | null;
   cadence: string;
@@ -128,9 +167,9 @@ export function createChoreRecord(input: {
   reminderLeadMinutes?: number;
   penaltyRuleId?: number | null;
 }) {
-  const chore = createChore(input);
+  const chore = await createChore(input);
   if (chore) {
-    addEventLog({
+    await addEventLogAsync({
       roommateId: input.defaultAssigneeId ?? null,
       assignmentId: null,
       eventType: "CHORE_CREATED",
@@ -144,10 +183,11 @@ export function createChoreRecord(input: {
       })
     });
   }
+  invalidateHouseholdSnapshotCache();
   return chore;
 }
 
-export function updateChoreRecord(
+export async function updateChoreRecord(
   id: number,
   input: {
     title?: string;
@@ -171,9 +211,9 @@ export function updateChoreRecord(
     penaltyRuleId?: number | null;
   }
 ) {
-  const chore = updateChore(id, input);
+  const chore = await updateChore(id, input);
   if (chore) {
-    addEventLog({
+    await addEventLogAsync({
       roommateId: input.defaultAssigneeId ?? null,
       assignmentId: null,
       eventType: "CHORE_UPDATED",
@@ -185,10 +225,11 @@ export function updateChoreRecord(
       })
     });
   }
+  invalidateHouseholdSnapshotCache();
   return chore;
 }
 
-export function createAssignmentRecord(input: {
+export async function createAssignmentRecord(input: {
   choreId: number;
   roommateId: number;
   dueDate: string;
@@ -201,10 +242,12 @@ export function createAssignmentRecord(input: {
   strikeApplied?: number;
   rescueCreditApplied?: number;
 }) {
-  return createAssignment(input);
+  const assignment = await createAssignment(input);
+  invalidateHouseholdSnapshotCache();
+  return assignment;
 }
 
-export function updateAssignmentRecord(
+export async function updateAssignmentRecord(
   id: number,
   input: {
     choreId?: number;
@@ -221,41 +264,51 @@ export function updateAssignmentRecord(
   }
 ) {
   if (input.resolutionType === "rescued" && input.rescuedByRoommateId) {
-    return rescueAssignment(id, input.rescuedByRoommateId, input.statusNote ?? null);
+    const assignment = await rescueAssignment(
+      id,
+      input.rescuedByRoommateId,
+      input.statusNote ?? null
+    );
+    invalidateHouseholdSnapshotCache();
+    return assignment;
   }
 
-  return updateAssignment(id, input);
+  const assignment = await updateAssignment(id, input);
+  invalidateHouseholdSnapshotCache();
+  return assignment;
 }
 
-export function updateHouseSettingsRecord(input: Partial<HouseSettings>) {
-  const settings = updateHouseSettings(input);
-  addEventLog({
+export async function updateHouseSettingsRecord(input: Partial<HouseSettings>) {
+  const settings = await updateHouseSettings(input);
+  await addEventLogAsync({
     roommateId: null,
     assignmentId: null,
     eventType: "SETTINGS_UPDATED",
     payload: JSON.stringify(input)
   });
+  invalidateHouseholdSnapshotCache();
   return settings;
 }
 
-export function createPenaltyRuleRecord(input: {
+export async function createPenaltyRuleRecord(input: {
   title: string;
   description?: string | null;
   triggerType?: PenaltyTrigger;
   amountCents: number;
   isActive?: number;
 }) {
-  const rule = createPenaltyRule(input);
-  addEventLog({
+  const rule = await createPenaltyRule(input);
+  await addEventLogAsync({
     roommateId: null,
     assignmentId: null,
     eventType: "PENALTY_RULE_CREATED",
     payload: JSON.stringify({ title: rule?.title, amountCents: rule?.amountCents })
   });
+  invalidateHouseholdSnapshotCache();
   return rule;
 }
 
-export function updatePenaltyRuleRecord(
+export async function updatePenaltyRuleRecord(
   id: number,
   input: {
     title?: string;
@@ -265,17 +318,18 @@ export function updatePenaltyRuleRecord(
     isActive?: number;
   }
 ) {
-  const rule = updatePenaltyRule(id, input);
-  addEventLog({
+  const rule = await updatePenaltyRule(id, input);
+  await addEventLogAsync({
     roommateId: null,
     assignmentId: null,
     eventType: "PENALTY_RULE_UPDATED",
     payload: JSON.stringify({ id, ...input })
   });
+  invalidateHouseholdSnapshotCache();
   return rule;
 }
 
-export function createPenaltyRecord(input: {
+export async function createPenaltyRecord(input: {
   roommateId: number;
   assignmentId?: number | null;
   ruleId?: number | null;
@@ -283,38 +337,43 @@ export function createPenaltyRecord(input: {
   amountCents?: number;
   status?: PenaltyStatus;
 }) {
-  const penalty = createPenalty(input);
+  const penalty = await createPenalty(input);
   if (penalty) {
-    addEventLog({
+    await addEventLogAsync({
       roommateId: penalty.roommateId,
       assignmentId: penalty.assignmentId,
       eventType: "PENALTY_MANUAL_CREATED",
       payload: JSON.stringify({ amountCents: penalty.amountCents, reason: penalty.reason })
     });
   }
+  invalidateHouseholdSnapshotCache();
   return penalty;
 }
 
-export function createExpenseRecord(input: {
+export async function createExpenseRecord(input: {
   title: string;
   amountCents: number;
   paidByRoommateId: number;
   note?: string | null;
   includedRoommateIds: number[];
 }) {
-  return createExpense(input);
+  const expense = await createExpense(input);
+  invalidateHouseholdSnapshotCache();
+  return expense;
 }
 
-export function createSettlementRecord(input: {
+export async function createSettlementRecord(input: {
   fromRoommateId: number;
   toRoommateId: number;
   amountCents: number;
   note?: string | null;
 }) {
-  return createSettlement(input);
+  const settlement = await createSettlement(input);
+  invalidateHouseholdSnapshotCache();
+  return settlement;
 }
 
-export function updatePenaltyRecord(
+export async function updatePenaltyRecord(
   id: number,
   input: {
     reason?: string | null;
@@ -322,15 +381,16 @@ export function updatePenaltyRecord(
     status?: PenaltyStatus;
   }
 ) {
-  const penalty = updatePenalty(id, input);
+  const penalty = await updatePenalty(id, input);
   if (penalty) {
-    addEventLog({
+    await addEventLogAsync({
       roommateId: penalty.roommateId,
       assignmentId: penalty.assignmentId,
       eventType: "PENALTY_UPDATED",
       payload: JSON.stringify({ id, ...input })
     });
   }
+  invalidateHouseholdSnapshotCache();
   return penalty;
 }
 
@@ -339,27 +399,29 @@ export async function sendTestReminder(input: {
   to?: string;
   message?: string;
 }) {
-  const roommate = input.roommateId ? getRoommateById(input.roommateId) : null;
+  const roommate = input.roommateId ? await getRoommateById(input.roommateId) : null;
   const to = input.to ?? roommate?.whatsappNumber;
 
   if (!to) {
     throw new Error("A roommateId or WhatsApp number is required.");
   }
 
-  const settings = getHouseSettings();
+  const settings = await getHouseSettingsAsync();
   const rememberedAssignment = roommate?.id
-    ? getOldestPendingAssignment(roommate.id)
+    ? await getOldestPendingAssignment(roommate.id)
     : null;
-  const message =
-    input.message ??
-    (rememberedAssignment
-      ? [
-          `Test reminder from ${settings.houseName}: ${rememberedAssignment.choreTitle} is on ${roommate?.name}.`,
-          `Due date: ${rememberedAssignment.dueDate}`,
-          `Reply DONE ${rememberedAssignment.id} when finished.`,
-          `If you cannot do it, reply "I can't do it today, skip".`
-        ].join("\n")
-      : `Test reminder from ${settings.houseName}. Reply TASKS to see your current chores.`);
+  const generatedMessage =
+    rememberedAssignment && roommate
+      ? (
+          await composeWhatsappConversationMessage({
+            kind: "assignment_reminder",
+            roommateName: roommate.name,
+            choreTitle: rememberedAssignment.choreTitle,
+            dueDate: rememberedAssignment.dueDate
+          })
+        ).text
+      : `😃 Hey, here’s a quick reminder from ${settings.houseName}. Open the app or message me if you want to see what’s on your list.`;
+  const message = input.message ?? generatedMessage;
   const outboundTo = resolveOutboundWhatsappNumber(to);
 
   if (!hasTwilioCredentials()) {
@@ -375,7 +437,8 @@ export async function sendTestReminder(input: {
   if (rememberedAssignment) {
     rememberLastOutboundAssignment(outboundTo, rememberedAssignment.id);
   }
-  addEventLog({
+  const { addEventLogAsync } = await import("./task-service-async.js");
+  await addEventLogAsync({
     roommateId: roommate?.id ?? null,
     assignmentId: null,
     eventType: "TEST_REMINDER_SENT",
