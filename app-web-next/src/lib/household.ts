@@ -441,6 +441,15 @@ function humanizeEventTitle(event: BackendEvent, assignment?: BackendAssignment,
       }
       return choreTitle ? `${actor} moved ${choreTitle}` : `${actor} rescheduled a chore`;
     }
+    case "ASSIGNMENT_UPDATED": {
+      const movedTo = formatIsoDayLabel(
+        typeof payload?.dueDate === "string" ? payload.dueDate : null
+      );
+      if (choreTitle && movedTo) {
+        return `${actor} moved ${choreTitle} to ${movedTo}`;
+      }
+      return choreTitle ? `${actor} updated ${choreTitle}` : `${actor} updated an assignment`;
+    }
     case "ASSIGNMENT_WINDOW_SHIFTED": {
       const start = formatIsoDayLabel(
         typeof payload?.shiftedWindowStartDate === "string" ? payload.shiftedWindowStartDate : null

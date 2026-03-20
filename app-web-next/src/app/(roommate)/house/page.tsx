@@ -22,9 +22,7 @@ export default async function HousePage() {
   const snapshot = await getHouseholdSnapshotCached();
   const shared   = getSharedHouseSnapshot(snapshot);
   const rescues  = getOpenRescueRequests(snapshot, session.roommateId);
-  const feed     = getNotificationFeed(snapshot, session.roommateId, 50, {
-    includeTransportLogs: true
-  });
+  const feed     = getNotificationFeed(snapshot, session.roommateId, 50);
   const timeline = getProjectedWeeklyTimeline(snapshot, 0);
 
   return (

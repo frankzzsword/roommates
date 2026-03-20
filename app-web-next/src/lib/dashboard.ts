@@ -589,12 +589,16 @@ export function getNotificationFeed(
   limit = 6,
   options?: { includeTransportLogs?: boolean }
 ): NotificationFeedItem[] {
-  const hiddenEventTypes = new Set(["WHATSAPP_ROUTE_INTERPRETED"]);
-  if (!options?.includeTransportLogs) {
-    hiddenEventTypes.add("CONVERSATION_MESSAGE_SENT");
-    hiddenEventTypes.add("HANDOFF_MESSAGE_SENT");
-    hiddenEventTypes.add("WHATSAPP_WELCOME_SENT");
-    hiddenEventTypes.add("HANDOFF_MESSAGE_FAILED");
+  const hiddenEventTypes = new Set([
+    "WHATSAPP_ROUTE_INTERPRETED",
+    "CONVERSATION_MESSAGE_SENT",
+    "HANDOFF_MESSAGE_SENT",
+    "WHATSAPP_WELCOME_SENT",
+    "HANDOFF_MESSAGE_FAILED"
+  ]);
+  if (options?.includeTransportLogs) {
+    hiddenEventTypes.delete("CONVERSATION_MESSAGE_SENT");
+    hiddenEventTypes.delete("HANDOFF_MESSAGE_SENT");
   }
 
   return snapshot.activity
