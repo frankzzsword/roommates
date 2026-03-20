@@ -234,6 +234,7 @@ export function WeekPageClient({
   feed,
   mineOpenThisWeekCount,
   mineCompletedThisWeekCount,
+  mineCompletedThisWeekTasks,
   future,
   initialView,
   initialDay,
@@ -249,6 +250,7 @@ export function WeekPageClient({
   feed: NotificationFeedItem[];
   mineOpenThisWeekCount: number;
   mineCompletedThisWeekCount: number;
+  mineCompletedThisWeekTasks: UiChore[];
   future: Array<{
     key: string; dayLabel: string; dateLabel: string; count: number; emptyLabel?: string;
     board: HouseholdWeekEntry[];
@@ -349,6 +351,24 @@ export function WeekPageClient({
                     <p className="mt-0.5 text-[11px] text-[var(--muted)]">
                       You finished {mineCompletedThisWeekCount} task{mineCompletedThisWeekCount === 1 ? "" : "s"} this week.
                     </p>
+                    <div className="mt-4 w-full max-w-xl overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--card)] text-left">
+                      <div className="border-b border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[11px] font-semibold text-[var(--ink)]">
+                        Finished this week
+                      </div>
+                      <div className="divide-y divide-[var(--line)]">
+                        {mineCompletedThisWeekTasks.slice(0, 7).map((task) => (
+                          <div key={task.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-[12px] font-medium text-[var(--ink)]">{task.title}</p>
+                              <p className="text-[10px] text-[var(--muted)]">{task.dueLabel}</p>
+                            </div>
+                            <span className="shrink-0 rounded-md bg-[var(--surface)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                              {task.points}pt
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </>
                 ) : hasProgressThisWeek ? (
                   <>

@@ -35,8 +35,9 @@ export default async function WeekPage({
   const rolling     = getRollingTasks(snapshot);
   const rescues     = getOpenRescueRequests(snapshot, me.id);
   const feed        = getNotificationFeed(snapshot, me.id, 6);
+  const mineCompletedThisWeekTasks = getCompletedThisWeekTasks(snapshot, me.id);
   const mineOpenThisWeekCount = getThisWeekTasks(snapshot, me.id).length;
-  const mineCompletedThisWeekCount = getCompletedThisWeekTasks(snapshot, me.id).length;
+  const mineCompletedThisWeekCount = mineCompletedThisWeekTasks.length;
 
   const initialDay    = params.day    ?? mineAgenda[0]?.key ?? "";
   const initialFuture = params.future ?? future[0]?.key    ?? "";
@@ -59,6 +60,7 @@ export default async function WeekPage({
       feed={feed}
       mineOpenThisWeekCount={mineOpenThisWeekCount}
       mineCompletedThisWeekCount={mineCompletedThisWeekCount}
+      mineCompletedThisWeekTasks={mineCompletedThisWeekTasks}
       future={futureWithBoards}
       initialView={initialView}
       initialDay={initialDay}
