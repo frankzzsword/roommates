@@ -135,7 +135,10 @@ async function runWeeklyOverviewTick(now: Date) {
     return;
   }
 
-  const summaryHour = Number.isFinite(settings.summaryHour) ? settings.summaryHour : 14;
+  const configuredSummaryHour = Number.isFinite(settings.summaryHour)
+    ? settings.summaryHour
+    : 14;
+  const summaryHour = Math.max(12, Math.min(17, configuredSummaryHour));
   if (hourInTimezone(now, timezone) < summaryHour) {
     return;
   }
