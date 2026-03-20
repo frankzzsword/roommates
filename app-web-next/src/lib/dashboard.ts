@@ -86,6 +86,10 @@ function compareByDue(left: UiChore, right: UiChore) {
   return toDate(left.dueAt).getTime() - toDate(right.dueAt).getTime();
 }
 
+function compareByDueDesc(left: UiChore, right: UiChore) {
+  return toDate(right.dueAt).getTime() - toDate(left.dueAt).getTime();
+}
+
 function compareTemplates(left: UiTaskTemplate, right: UiTaskTemplate) {
   return (left.nextDueAt ?? "").localeCompare(right.nextDueAt ?? "");
 }
@@ -147,6 +151,16 @@ export function getRollingTasks(snapshot: HouseholdSnapshot, roommateId?: string
   return getRoommateTasks(snapshot, roommateId)
     .filter((task) => task.taskMode === "rolling_until_done" && isOpenTask(task))
     .sort(compareByDue);
+}
+
+export function getCompletedRollingTasks(snapshot: HouseholdSnapshot, roommateId?: string) {
+  const start = startOfWeek();
+  const end = endOfWeek();
+  return getRoommateTasks(snapshot, roommateId)
+    .filter((task) => task.taskMode === "rolling_until_done")
+    .filter((task) => task.status === "done" || task.status === "rescued")
+    .filter((task) => isWithinRange(task.dueAt, start, end))
+    .sort(compareByDueDesc);
 }
 
 export function getWeekAgenda(snapshot: HouseholdSnapshot, roommateId?: string): DayAgendaBucket[] {
@@ -570,15 +584,29 @@ export function getSharedHouseSnapshot(snapshot: HouseholdSnapshot): SharedHouse
 }
 
 export function getNotificationFeed(snapshot: HouseholdSnapshot, roommateId?: string, limit = 6): NotificationFeedItem[] {
+  const hiddenEventTypes = new Set([
+    "WHATSAPP_ROUTE_INTERPRETED",
+    "CONVERSATION_MESSAGE_SENT",
+    "HANDOFF_MESSAGE_SENT",
+    "WHATSAPP_WELCOME_SENT",
+    "HANDOFF_MESSAGE_FAILED"
+  ]);
+
   return snapshot.activity
-    .filter((entry) => entry.eventType !== "WHATSAPP_ROUTE_INTERPRETED")
+    .filter((entry) => {
+      const eventType = entry.eventType.toUpperCase();
+      return !hiddenEventTypes.has(eventType);
+    })
     .slice(0, limit)
     .map((entry) => ({
       id: entry.id,
       title: entry.title,
       meta: `${entry.actor} • ${entry.timestamp}`,
       tone:
-        entry.type === "completed"
+        entry.eventType.toUpperCase().includes("EXPENSE") ||
+        entry.eventType.toUpperCase().includes("SETTLEMENT")
+          ? "accent"
+          : entry.type === "completed"
           ? "success"
           : entry.type === "rescue"
             ? "accent"

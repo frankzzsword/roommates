@@ -19,7 +19,11 @@ import {
   updatePenaltyRuleRecord,
   updateRoommateRecord
 } from "./services/household-service.js";
-import { processInboundMessage } from "./services/message-service.js";
+import {
+  notifyHouseExpenseAddedAsync,
+  notifyHouseSettlementAddedAsync,
+  processInboundMessage
+} from "./services/message-service.js";
 import { buildTwimlMessage } from "./services/twilio-service.js";
 import {
   createAssignmentAsync,
@@ -493,6 +497,9 @@ export function createApp() {
         note: asNullableString(req.body.note),
         includedRoommateIds
       });
+      if (expense) {
+        await notifyHouseExpenseAddedAsync(expense);
+      }
 
       res.status(201).json({ expense });
     } catch (error) {
@@ -517,6 +524,9 @@ export function createApp() {
         amountCents,
         note: asNullableString(req.body.note)
       });
+      if (settlement) {
+        await notifyHouseSettlementAddedAsync(settlement);
+      }
 
       res.status(201).json({ settlement });
     } catch (error) {

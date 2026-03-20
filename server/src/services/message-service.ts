@@ -1,5 +1,5 @@
 import { config, isTrustedProxyWhatsappNumber } from "../config.js";
-import type { Assignment, CommandResult } from "../lib/types.js";
+import type { Assignment, CommandResult, Expense, Settlement } from "../lib/types.js";
 import {
   composeWhatsappConversationMessage,
   routeWhatsappMessageWithAi
@@ -209,6 +209,10 @@ function formatShortDueDate(value: string) {
   }
 
   return value;
+}
+
+function formatEuroCents(amountCents: number) {
+  return (amountCents / 100).toFixed(2);
 }
 
 function toUtcDay(value: string | Date) {
@@ -741,6 +745,82 @@ export function rememberLastOutboundAssignment(
   assignmentId: number
 ) {
   lastOutboundAssignmentByWhatsapp.set(whatsappNumber, assignmentId);
+}
+
+export async function notifyHouseExpenseAddedAsync(
+  expense: Expense,
+  options?: { excludeRoommateIds?: number[] }
+) {
+  const excludedIds = new Set(options?.excludeRoommateIds ?? []);
+  const roommates = await listRoommatesAsync();
+  const targets = roommates.filter(
+    (roommate) =>
+      roommate.isActive &&
+      Boolean(roommate.whatsappNumber) &&
+      !excludedIds.has(roommate.id)
+  );
+
+  const excludedLabel =
+    expense.excludedRoommateNames.length > 0
+      ? ` Excluded: ${expense.excludedRoommateNames.join(", ")}.`
+      : "";
+
+  for (const roommate of targets) {
+    const share = expense.shares.find((entry) => entry.roommateId === roommate.id);
+    const shareText = share
+      ? `Your share is ${formatEuroCents(share.shareCents)} EUR.`
+      : "You are excluded from this split.";
+    const message =
+      `🧾 ${expense.paidByRoommateName} added ${expense.title} for ${formatEuroCents(expense.amountCents)} EUR. ` +
+      `${shareText}${excludedLabel}`;
+    try {
+      await sendWhatsappMessage(roommate.whatsappNumber, message);
+    } catch (error) {
+      await addEventLogAsync({
+        roommateId: roommate.id,
+        assignmentId: null,
+        eventType: "EXPENSE_NOTIFICATION_FAILED",
+        payload: JSON.stringify({
+          expenseId: expense.id,
+          error: error instanceof Error ? error.message : "unknown"
+        })
+      });
+    }
+  }
+}
+
+export async function notifyHouseSettlementAddedAsync(
+  settlement: Settlement,
+  options?: { excludeRoommateIds?: number[] }
+) {
+  const excludedIds = new Set(options?.excludeRoommateIds ?? []);
+  const roommates = await listRoommatesAsync();
+  const targets = roommates.filter(
+    (roommate) =>
+      roommate.isActive &&
+      Boolean(roommate.whatsappNumber) &&
+      !excludedIds.has(roommate.id)
+  );
+
+  const message =
+    `💸 Settlement logged: ${settlement.fromRoommateName} paid ${settlement.toRoommateName} ` +
+    `${formatEuroCents(settlement.amountCents)} EUR. Balances were updated.`;
+
+  for (const roommate of targets) {
+    try {
+      await sendWhatsappMessage(roommate.whatsappNumber, message);
+    } catch (error) {
+      await addEventLogAsync({
+        roommateId: roommate.id,
+        assignmentId: null,
+        eventType: "SETTLEMENT_NOTIFICATION_FAILED",
+        payload: JSON.stringify({
+          settlementId: settlement.id,
+          error: error instanceof Error ? error.message : "unknown"
+        })
+      });
+    }
+  }
 }
 
 function getLastReferencedAssignmentId(whatsappNumber: string) {
@@ -2294,6 +2374,8 @@ export async function processInboundMessage(params: {
       return { message: "I couldn't log that expense right now." };
     }
 
+    await notifyHouseExpenseAddedAsync(expense, { excludeRoommateIds: [actorRoommate.id] });
+
     const splitCount = expense.shares.length;
     const perPerson = expense.shares[0]?.shareCents ?? 0;
     return {
@@ -2335,6 +2417,8 @@ export async function processInboundMessage(params: {
     if (!settlement) {
       return { message: "I couldn't record that payment right now." };
     }
+
+    await notifyHouseSettlementAddedAsync(settlement, { excludeRoommateIds: [actorRoommate.id] });
 
     return {
       message: `😃 Logged your payment of ${(settlement.amountCents / 100).toFixed(2)} EUR to ${settlement.toRoommateName}. The dashboard balances are updated.`
