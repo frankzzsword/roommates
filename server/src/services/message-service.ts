@@ -38,7 +38,7 @@ import {
 import {
   resolveOutboundWhatsappNumber,
   sendWhatsappMessage
-} from "./twilio-service.js";
+} from "./whatsapp-service.js";
 
 const lastOutboundAssignmentByWhatsapp = new Map<string, number>();
 const lastHouseQuestionContextByWhatsapp = new Map<

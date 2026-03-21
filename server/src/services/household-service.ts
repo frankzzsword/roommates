@@ -1,4 +1,4 @@
-import { config, hasTwilioCredentials } from "../config.js";
+import { config } from "../config.js";
 import type {
   AdvanceRotationOn,
   AssignmentStatus,
@@ -43,8 +43,9 @@ import { rememberLastOutboundAssignment } from "./message-service.js";
 import { composeWhatsappConversationMessage } from "./ai-service.js";
 import {
   resolveOutboundWhatsappNumber,
+  getWhatsappClientStatus,
   sendWhatsappMessage
-} from "./twilio-service.js";
+} from "./whatsapp-service.js";
 
 async function buildHouseholdSnapshotAsync(): Promise<HouseholdSnapshot> {
   const [
@@ -424,7 +425,8 @@ export async function sendTestReminder(input: {
   const message = input.message ?? generatedMessage;
   const outboundTo = resolveOutboundWhatsappNumber(to);
 
-  if (!hasTwilioCredentials()) {
+  const whatsappStatus = getWhatsappClientStatus();
+  if (!whatsappStatus.ready && !config.whatsappProxySendEnabled) {
     return {
       delivered: false,
       transport: "stub",
@@ -446,16 +448,16 @@ export async function sendTestReminder(input: {
       originalTo: to,
       effectiveTo: outboundTo,
       rememberedAssignmentId: rememberedAssignment?.id ?? null,
-      sid: result.sid,
-      viaSandbox: config.twilioWhatsappNumber
+      messageId: result.id,
+      transport: "whatsapp-web.js"
     })
   });
 
   return {
     delivered: true,
-    transport: "twilio",
+    transport: "whatsapp-web.js",
     to,
     message,
-    sid: result.sid
+    messageId: result.id
   };
 }

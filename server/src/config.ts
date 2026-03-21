@@ -7,9 +7,7 @@ const rootDir = process.cwd();
 const databaseUrl = process.env.DATABASE_URL ?? "";
 const isProduction = process.env.NODE_ENV === "production";
 const allowWhatsappOverride = process.env.ALLOW_WHATSAPP_OVERRIDE === "true";
-const legacyOverrideNumber = process.env.TWILIO_FORCE_TO_NUMBER ?? "";
-const configuredWhatsappOverrideNumber =
-  process.env.WHATSAPP_OVERRIDE_NUMBER ?? legacyOverrideNumber;
+const configuredWhatsappOverrideNumber = process.env.WHATSAPP_OVERRIDE_NUMBER ?? "";
 const whatsappOverrideNumber =
   configuredWhatsappOverrideNumber && !isProduction && allowWhatsappOverride
     ? configuredWhatsappOverrideNumber
@@ -35,10 +33,13 @@ export const config = {
     rootDir,
     process.env.HOUSEHOLD_SNAPSHOT_PATH ?? "./tmp/household-snapshot.json"
   ),
-  twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
-  twilioAuthToken: process.env.TWILIO_AUTH_TOKEN ?? "",
-  twilioWhatsappNumber:
-    process.env.TWILIO_WHATSAPP_NUMBER ?? "whatsapp:+14155238886",
+  enableWhatsappWeb: process.env.ENABLE_WHATSAPP_WEB !== "false",
+  whatsappClientId: process.env.WHATSAPP_CLIENT_ID ?? "roommates",
+  whatsappSessionPath: process.env.WHATSAPP_SESSION_PATH ?? "./tmp/whatsapp-session",
+  whatsappHeadless: process.env.WHATSAPP_HEADLESS !== "false",
+  whatsappProxySendEnabled: process.env.WHATSAPP_PROXY_SEND !== "false",
+  whatsappInternalApiKey:
+    process.env.WHATSAPP_INTERNAL_API_KEY ?? process.env.CRON_JOB_API_KEY ?? "",
   whatsappOverrideNumber,
   openAiApiKey: process.env.OPENAI_API_KEY ?? "",
   openAiSubtaskModel: process.env.OPENAI_SUBTASK_MODEL ?? "gpt-5.4-mini",
@@ -49,10 +50,6 @@ export const config = {
 
 export function hasDatabaseUrl() {
   return Boolean(config.databaseUrl);
-}
-
-export function hasTwilioCredentials() {
-  return Boolean(config.twilioAccountSid && config.twilioAuthToken);
 }
 
 export function hasOpenAiCredentials() {

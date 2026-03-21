@@ -1,10 +1,10 @@
 # Roommate Chores Bot Backend
 
-Node.js + TypeScript + Express backend for a WhatsApp chores bot. It uses SQLite for local state, Twilio webhooks for inbound WhatsApp messages, and includes seeded data so it can run before real credentials are wired in.
+Node.js + TypeScript + Express backend for a WhatsApp chores bot. It uses SQLite/Postgres for state and `whatsapp-web.js` for inbound/outbound WhatsApp messages.
 
 ## Features
 
-- WhatsApp webhook endpoint for Twilio inbound messages
+- Native WhatsApp Web client transport via `whatsapp-web.js`
 - Commands: `HELP`, `TASKS`, `STATUS`, `DONE`, `SKIP`
 - Mobile app endpoints: `GET /api/assignments`, `GET /api/roommates`, `GET /api/events`
 - SQLite schema with chores, assignments, roommates, and event log
@@ -34,21 +34,17 @@ npm run dev
 
 The app creates and seeds the SQLite database on first boot.
 
-## Twilio Setup
+## WhatsApp Web Setup
 
-Point the Twilio WhatsApp sandbox or WhatsApp sender webhook to:
+1. Start the server.
+2. Open `GET /api/whatsapp/status` and copy the `qr` value.
+3. Scan that QR from WhatsApp on the account that should run automation.
+4. Wait for `ready: true` in the same status endpoint.
 
-`POST /webhooks/twilio/whatsapp`
+Useful endpoints:
 
-For local testing with Twilio, expose the server with a tunnel like ngrok:
-
-```bash
-ngrok http 3001
-```
-
-Then set the webhook URL in Twilio to:
-
-`https://your-ngrok-domain.ngrok.app/webhooks/twilio/whatsapp`
+- `GET /api/whatsapp/status`
+- `POST /api/whatsapp/reconnect`
 
 ## Command Examples
 
@@ -85,5 +81,5 @@ Update those numbers in the database or seed script to match real participants.
 ## Notes
 
 - Outbound reminders are disabled unless `ENABLE_OUTBOUND_REMINDERS=true`.
-- If Twilio credentials are absent, webhook replies still work via TwiML response messages.
+- When running separate web/scheduler processes, keep `WHATSAPP_PROXY_SEND=true` so scheduler sends through the web process's WhatsApp client.
 - The scheduler is intentionally minimal for a first pass. It is ready for replacement with BullMQ, cron, or Supabase jobs later.

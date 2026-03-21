@@ -21,7 +21,7 @@ import {
 import {
   resolveOutboundWhatsappNumber,
   sendWhatsappMessage
-} from "./twilio-service.js";
+} from "./whatsapp-service.js";
 
 function isoDateInTimezone(value: Date, timezone: string) {
   const formatter = new Intl.DateTimeFormat("en-CA", {

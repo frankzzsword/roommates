@@ -24,7 +24,11 @@ import {
   notifyHouseSettlementAddedAsync,
   processInboundMessage
 } from "./services/message-service.js";
-import { buildTwimlMessage } from "./services/twilio-service.js";
+import {
+  getWhatsappClientStatus,
+  initializeWhatsappClient,
+  sendWhatsappMessageDirect
+} from "./services/whatsapp-service.js";
 import {
   createAssignmentAsync,
   createExpenseAsync,
@@ -612,19 +616,43 @@ export function createApp() {
     }
   });
 
-  app.post("/webhooks/twilio/whatsapp", async (req, res, next) => {
-    try {
-      const from = String(req.body.From ?? "");
-      const body = String(req.body.Body ?? "");
-      const result = await processInboundMessage({ from, body });
-      const twiml = buildTwimlMessage(result.message);
+  app.get("/api/whatsapp/status", (_req, res) => {
+    res.json({
+      whatsapp: getWhatsappClientStatus()
+    });
+  });
 
-      res.type("text/xml").send(twiml);
+  app.post("/api/whatsapp/reconnect", async (_req, res, next) => {
+    try {
+      await initializeWhatsappClient();
+      res.json({
+        ok: true,
+        whatsapp: getWhatsappClientStatus()
+      });
     } catch (error) {
-      const message =
-        "Something went wrong on my side just now. Please try that again in a moment 🙂";
-      const twiml = buildTwimlMessage(message);
-      res.status(200).type("text/xml").send(twiml);
+      next(error);
+    }
+  });
+
+  app.post("/internal/whatsapp/send", async (req, res, next) => {
+    try {
+      const providedKey = String(req.headers["x-whatsapp-internal-key"] ?? "");
+      if (!config.whatsappInternalApiKey || providedKey !== config.whatsappInternalApiKey) {
+        res.status(401).json({ error: "Unauthorized internal WhatsApp send request." });
+        return;
+      }
+
+      const to = asRequiredString(req.body.to);
+      const body = asRequiredString(req.body.body);
+      if (!to || !body) {
+        res.status(400).json({ error: "to and body are required." });
+        return;
+      }
+
+      const result = await sendWhatsappMessageDirect(to, body);
+      res.json({ ok: true, result });
+    } catch (error) {
+      next(error);
     }
   });
 
