@@ -1,5 +1,6 @@
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
+import QRCode from "qrcode";
 import { config } from "./config.js";
 import { analyzeHouseholdFlowWithAi, suggestSubtasksWithAi } from "./services/ai-service.js";
 import {
@@ -616,18 +617,93 @@ export function createApp() {
     }
   });
 
-  app.get("/api/whatsapp/status", (_req, res) => {
-    res.json({
-      whatsapp: getWhatsappClientStatus()
-    });
+  app.get("/api/whatsapp/status", async (_req, res, next) => {
+    try {
+      const status = getWhatsappClientStatus();
+      const qrImageDataUrl = status.qr
+        ? await QRCode.toDataURL(status.qr, {
+            margin: 1,
+            width: 360
+          })
+        : null;
+
+      res.json({
+        whatsapp: {
+          ...status,
+          qrImageDataUrl
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/whatsapp/scan", async (_req, res, next) => {
+    try {
+      const status = getWhatsappClientStatus();
+      const qrImageDataUrl = status.qr
+        ? await QRCode.toDataURL(status.qr, {
+            margin: 1,
+            width: 360
+          })
+        : null;
+
+      const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>WhatsApp QR</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#f7f7f7; color:#111; margin:0; padding:24px; }
+      .card { max-width:460px; margin:0 auto; background:#fff; border-radius:16px; padding:20px; box-shadow:0 8px 24px rgba(0,0,0,.08); text-align:center; }
+      .meta { margin-top:12px; color:#555; font-size:14px; }
+      .status { display:inline-block; padding:6px 10px; border-radius:999px; background:#eee; margin-bottom:12px; font-size:13px; }
+      .ready { background:#d8f6e4; color:#0f7a3d; }
+      img { max-width:100%; border-radius:12px; }
+      .hint { margin-top:14px; font-size:13px; color:#666; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="status ${status.ready ? "ready" : ""}">
+        ${status.ready ? "Connected" : status.qr ? "Scan this QR in WhatsApp" : "Waiting for QR"}
+      </div>
+      ${
+        qrImageDataUrl
+          ? `<img src="${qrImageDataUrl}" alt="WhatsApp QR Code" />`
+          : "<p>No QR available right now. Refresh this page.</p>"
+      }
+      <div class="meta">ready: ${String(status.ready)} · authenticated: ${String(status.authenticated)}</div>
+      <div class="hint">Open WhatsApp on your phone -> Linked devices -> Link a device.</div>
+    </div>
+    <script>setTimeout(() => location.reload(), 7000);</script>
+  </body>
+</html>`;
+
+      res.type("text/html").send(html);
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/whatsapp/reconnect", async (_req, res, next) => {
     try {
       await initializeWhatsappClient();
+      const status = getWhatsappClientStatus();
+      const qrImageDataUrl = status.qr
+        ? await QRCode.toDataURL(status.qr, {
+            margin: 1,
+            width: 360
+          })
+        : null;
+
       res.json({
         ok: true,
-        whatsapp: getWhatsappClientStatus()
+        whatsapp: {
+          ...status,
+          qrImageDataUrl
+        }
       });
     } catch (error) {
       next(error);
