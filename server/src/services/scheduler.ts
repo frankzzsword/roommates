@@ -230,7 +230,7 @@ async function runReminderTick() {
 
       try {
         await sendWhatsappMessage(assignment.whatsappNumber, message);
-        rememberLastOutboundAssignment(outboundTo, assignment.id);
+        rememberLastOutboundAssignment(assignment.whatsappNumber, assignment.id);
         if (group.promptType === "day_of_reminder") {
           await markReminderSent(assignment.id);
         }
@@ -292,7 +292,7 @@ async function runReminderTick() {
 
     try {
       await sendWhatsappMessage(assignment.whatsappNumber, composed.text);
-      rememberLastOutboundAssignment(outboundTo, assignment.id);
+      rememberLastOutboundAssignment(assignment.whatsappNumber, assignment.id);
       await addEventLog({
         roommateId: assignment.roommateId,
         assignmentId: assignment.id,
@@ -331,7 +331,7 @@ async function runReminderTick() {
 
     try {
       await sendWhatsappMessage(assignment.whatsappNumber, composed.text);
-      rememberLastOutboundAssignment(outboundTo, assignment.id);
+      rememberLastOutboundAssignment(assignment.whatsappNumber, assignment.id);
       await addEventLog({
         roommateId: assignment.roommateId,
         assignmentId: assignment.id,
@@ -421,7 +421,7 @@ async function runReminderTick() {
       });
 
       await sendWhatsappMessage(reassigned.whatsappNumber, composed.text);
-      rememberLastOutboundAssignment(outboundTo, reassigned.id);
+      rememberLastOutboundAssignment(reassigned.whatsappNumber, reassigned.id);
       await addEventLog({
         roommateId: reassigned.roommateId,
         assignmentId: reassigned.id,

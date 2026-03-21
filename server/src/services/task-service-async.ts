@@ -1692,25 +1692,52 @@ export async function hasRoommateReceivedWhatsappWelcomeAsync(roommateId: number
   return Boolean(row);
 }
 
-export async function getLatestConversationPromptForWhatsappAsync(whatsappNumber: string) {
-  const row = await queryRow<{
-    assignmentId: number | null;
-    payloadJson: string | null;
-    createdAt: string;
-  }>(
-    `
-      SELECT
-        assignment_id AS "assignmentId",
-        payload_json AS "payloadJson",
-        created_at AS "createdAt"
-      FROM event_log
-      WHERE event_type = 'CONVERSATION_MESSAGE_SENT'
-        AND payload_json LIKE $1
-      ORDER BY id DESC
-      LIMIT 1
-    `,
-    [`%"effectiveTo":"${whatsappNumber}"%`]
-  );
+export async function getLatestConversationPromptForWhatsappAsync(
+  whatsappNumber: string,
+  options?: { preferOriginalRecipient?: boolean }
+) {
+  const effectivePattern = `%"effectiveTo":"${whatsappNumber}"%`;
+  const originalPattern = `%"originalTo":"${whatsappNumber}"%`;
+
+  const row = options?.preferOriginalRecipient
+    ? await queryRow<{
+        assignmentId: number | null;
+        payloadJson: string | null;
+        createdAt: string;
+      }>(
+        `
+          SELECT
+            assignment_id AS "assignmentId",
+            payload_json AS "payloadJson",
+            created_at AS "createdAt"
+          FROM event_log
+          WHERE event_type = 'CONVERSATION_MESSAGE_SENT'
+            AND (payload_json LIKE $1 OR payload_json LIKE $2)
+          ORDER BY
+            CASE WHEN payload_json LIKE $1 THEN 0 ELSE 1 END,
+            id DESC
+          LIMIT 1
+        `,
+        [originalPattern, effectivePattern]
+      )
+    : await queryRow<{
+        assignmentId: number | null;
+        payloadJson: string | null;
+        createdAt: string;
+      }>(
+        `
+          SELECT
+            assignment_id AS "assignmentId",
+            payload_json AS "payloadJson",
+            created_at AS "createdAt"
+          FROM event_log
+          WHERE event_type = 'CONVERSATION_MESSAGE_SENT'
+            AND payload_json LIKE $1
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        [effectivePattern]
+      );
 
   if (!row) {
     return null;
@@ -1729,6 +1756,7 @@ export async function getLatestConversationPromptForWhatsappAsync(whatsappNumber
     assignmentId: row.assignmentId,
     createdAt: row.createdAt,
     promptType: typeof payload?.promptType === "string" ? payload.promptType : null,
+    originalTo: typeof payload?.originalTo === "string" ? payload.originalTo : null,
     effectiveTo: typeof payload?.effectiveTo === "string" ? payload.effectiveTo : null
   };
 }

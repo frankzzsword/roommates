@@ -435,7 +435,7 @@ export async function sendTestReminder(input: {
 
   const result = await sendWhatsappMessage(to, message);
   if (rememberedAssignment) {
-    rememberLastOutboundAssignment(outboundTo, rememberedAssignment.id);
+    rememberLastOutboundAssignment(to, rememberedAssignment.id);
   }
   const { addEventLogAsync } = await import("./task-service-async.js");
   await addEventLogAsync({

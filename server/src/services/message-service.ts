@@ -1579,7 +1579,7 @@ async function notifyAssignmentHandoffAsync(reassigned: Assignment) {
 
   try {
     await sendWhatsappMessage(reassigned.whatsappNumber, composed.text);
-    rememberLastOutboundAssignment(outboundTo, reassigned.id);
+    rememberLastOutboundAssignment(reassigned.whatsappNumber, reassigned.id);
     await addEventLogAsync({
       roommateId: reassigned.roommateId,
       assignmentId: reassigned.id,
@@ -1641,7 +1641,7 @@ async function sendRescueRequestToHouseAsync(assignment: Assignment, reason: str
 
     try {
       await sendWhatsappMessage(candidate.whatsappNumber, composed.text);
-      rememberLastOutboundAssignment(outboundTo, assignment.id);
+      rememberLastOutboundAssignment(candidate.whatsappNumber, assignment.id);
       await addEventLogAsync({
         roommateId: candidate.id,
         assignmentId: assignment.id,
@@ -1702,7 +1702,7 @@ async function sendConversationalReplyAsync(params: {
     await sendWhatsappMessage(params.to, composed.text);
   }
   if (params.assignmentId) {
-    rememberLastOutboundAssignment(outboundTo, params.assignmentId);
+    rememberLastOutboundAssignment(params.to, params.assignmentId);
   }
   await addEventLogAsync({
     roommateId: params.roommateId,
@@ -1994,7 +1994,9 @@ async function handleConversationalReplyAsync(actor: {
   roommateId: number | null;
   trustedProxy: boolean;
 }, replyType: AiWhatsappRoute["replyType"], body: string, targetDate: string | null) {
-  const latestPrompt = await getLatestConversationPromptForWhatsappAsync(actor.whatsappNumber);
+  const latestPrompt = await getLatestConversationPromptForWhatsappAsync(actor.whatsappNumber, {
+    preferOriginalRecipient: Boolean(actor.roommateId)
+  });
   const assignmentId =
     latestPrompt?.assignmentId ?? getLastReferencedAssignmentId(actor.whatsappNumber);
 
@@ -2185,8 +2187,8 @@ export async function processInboundMessage(params: {
     return { message: buildHelpMessage() };
   }
 
-  const trustedProxy = isTrustedProxyWhatsappNumber(params.from);
   const actorRoommate = await findRoommateByWhatsappNumberAsync(params.from);
+  const trustedProxy = isTrustedProxyWhatsappNumber(params.from) && !actorRoommate;
   const actor = {
     whatsappNumber: params.from,
     roommateId: actorRoommate?.id ?? null,
@@ -2219,7 +2221,9 @@ export async function processInboundMessage(params: {
     };
   }
 
-  const latestPrompt = await getLatestConversationPromptForWhatsappAsync(params.from);
+  const latestPrompt = await getLatestConversationPromptForWhatsappAsync(params.from, {
+    preferOriginalRecipient: Boolean(actorRoommate)
+  });
   const pendingAssignments = await getPendingAssignmentsForInterpretationAsync(
     actor.roommateId,
     trustedProxy,
