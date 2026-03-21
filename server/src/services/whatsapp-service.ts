@@ -20,6 +20,9 @@ let latestQr: string | null = null;
 let lastError: string | null = null;
 let lastConnectedAt: string | null = null;
 let inboundHandler: InboundWhatsappHandler | null = null;
+let selfChatId: string | null = null;
+const outboundMessageIdTimestamps = new Map<string, number>();
+const OUTBOUND_MESSAGE_ID_TTL_MS = 10 * 60 * 1000;
 
 function toStoredWhatsappNumber(value: string) {
   const normalized = normalizeWhatsappNumber(value);
@@ -98,9 +101,57 @@ async function proxySendWhatsappMessage(to: string, body: string) {
   };
 }
 
-function shouldIgnoreInboundMessage(message: { from?: string | null; fromMe?: boolean; body?: string | null }) {
+function cleanupOutboundMessageIdCache(now = Date.now()) {
+  for (const [id, timestamp] of outboundMessageIdTimestamps.entries()) {
+    if (now - timestamp > OUTBOUND_MESSAGE_ID_TTL_MS) {
+      outboundMessageIdTimestamps.delete(id);
+    }
+  }
+}
+
+function rememberOutboundMessageId(messageId: string) {
+  const now = Date.now();
+  cleanupOutboundMessageIdCache(now);
+  outboundMessageIdTimestamps.set(messageId, now);
+}
+
+function wasOutboundMessageSentByBot(messageId: string | null | undefined) {
+  if (!messageId) {
+    return false;
+  }
+
+  const timestamp = outboundMessageIdTimestamps.get(messageId);
+  if (!timestamp) {
+    return false;
+  }
+
+  if (Date.now() - timestamp > OUTBOUND_MESSAGE_ID_TTL_MS) {
+    outboundMessageIdTimestamps.delete(messageId);
+    return false;
+  }
+
+  outboundMessageIdTimestamps.delete(messageId);
+  return true;
+}
+
+function shouldIgnoreInboundMessage(message: {
+  from?: string | null;
+  fromMe?: boolean;
+  body?: string | null;
+  to?: string | null;
+  id?: { _serialized?: string | null } | null;
+}) {
   if (message.fromMe) {
-    return true;
+    const messageId = message.id?._serialized ?? null;
+    if (wasOutboundMessageSentByBot(messageId)) {
+      return true;
+    }
+
+    const to = normalizeWhatsappNumber(message.to ?? "");
+    const isSelfChat = Boolean(selfChatId && to === normalizeWhatsappNumber(selfChatId));
+    if (!isSelfChat) {
+      return true;
+    }
   }
 
   const from = message.from ?? "";
@@ -130,8 +181,12 @@ export async function sendWhatsappMessageDirect(to: string, body: string) {
   const outboundTo = resolveOutboundWhatsappNumber(to);
   const chatId = toWebChatId(outboundTo);
   const sentMessage = await client.sendMessage(chatId, body);
+  const messageId = sentMessage.id?._serialized ?? null;
+  if (messageId) {
+    rememberOutboundMessageId(messageId);
+  }
   return {
-    id: sentMessage.id?._serialized ?? null,
+    id: messageId,
     to: outboundTo
   };
 }
@@ -214,6 +269,8 @@ export async function initializeWhatsappClient() {
   });
 
   nextClient.on("ready", () => {
+    const info = nextClient.info as { wid?: { _serialized?: string } } | undefined;
+    selfChatId = info?.wid?._serialized ?? null;
     isReady = true;
     isInitializing = false;
     latestQr = null;
@@ -229,7 +286,13 @@ export async function initializeWhatsappClient() {
     console.warn("WhatsApp Web client disconnected:", reason);
   });
 
-  nextClient.on("message", async (message: { from?: string; fromMe?: boolean; body?: string }) => {
+  nextClient.on("message", async (message: {
+    from?: string;
+    fromMe?: boolean;
+    body?: string;
+    to?: string;
+    id?: { _serialized?: string };
+  }) => {
     if (shouldIgnoreInboundMessage(message)) {
       return;
     }
