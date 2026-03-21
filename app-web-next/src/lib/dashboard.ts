@@ -293,6 +293,24 @@ function getRotatedRoommate(snapshot: HouseholdSnapshot, currentRoommateId: stri
   return activeRoommates[(currentIndex + offset) % activeRoommates.length] ?? null;
 }
 
+function buildRotationOrderNames(snapshot: HouseholdSnapshot, assigneeId: string | null) {
+  const activeRoommates = getActiveRoommates(snapshot);
+  if (activeRoommates.length === 0) {
+    return [];
+  }
+
+  const startIndex = assigneeId
+    ? activeRoommates.findIndex((roommate) => roommate.id === assigneeId)
+    : -1;
+
+  if (startIndex < 0) {
+    return activeRoommates.map((roommate) => roommate.name);
+  }
+
+  return activeRoommates
+    .map((_, index) => activeRoommates[(startIndex + index) % activeRoommates.length]!.name);
+}
+
 export function getProjectedHouseholdWeekBoard(snapshot: HouseholdSnapshot, weekOffset: number) {
   const activeRoommates = getActiveRoommates(snapshot);
   const grouped = new Map<string, HouseholdWeekEntry>();
@@ -345,8 +363,10 @@ export function getSharedDutyOverview(snapshot: HouseholdSnapshot): SharedDutyEn
         choreId: task.id,
         title: task.title,
         assignee: task.assignee,
+        assigneeId: task.assigneeId,
         dueLabel: task.dueLabel,
-        taskMode: task.taskMode
+        taskMode: task.taskMode,
+        rotationOrder: buildRotationOrderNames(snapshot, task.assigneeId)
       });
     }
   }
@@ -359,8 +379,10 @@ export function getSharedDutyOverview(snapshot: HouseholdSnapshot): SharedDutyEn
         choreId: task.id,
         title: task.title,
         assignee: task.assignee,
+        assigneeId: task.assigneeId,
         dueLabel: task.nextDueLabel,
-        taskMode: task.taskMode
+        taskMode: task.taskMode,
+        rotationOrder: buildRotationOrderNames(snapshot, task.assigneeId)
       });
     }
   }
@@ -374,13 +396,19 @@ export function getProjectedSharedDutyOverview(snapshot: HouseholdSnapshot, week
 
   return snapshot.taskTemplates
     .filter((task) => SHARED_DUTIES.includes(task.title as never) && task.taskMode === "fixed_schedule")
-    .map((task) => ({
-      choreId: `${task.id}-${weekOffset}`,
-      title: task.title,
-      assignee: getRotatedRoommate(snapshot, task.assigneeId, weekOffset)?.name ?? task.assignee,
-      dueLabel: task.nextDueLabel,
-      taskMode: task.taskMode
-    }));
+    .map((task) => {
+      const projectedRoommate = getRotatedRoommate(snapshot, task.assigneeId, weekOffset);
+      const assigneeId = projectedRoommate?.id ?? task.assigneeId;
+      return {
+        choreId: `${task.id}-${weekOffset}`,
+        title: task.title,
+        assignee: projectedRoommate?.name ?? task.assignee,
+        assigneeId,
+        dueLabel: task.nextDueLabel,
+        taskMode: task.taskMode,
+        rotationOrder: buildRotationOrderNames(snapshot, assigneeId)
+      };
+    });
 }
 
 export function getProjectedWeeklyTimeline(snapshot: HouseholdSnapshot, weekOffset = 0): HouseholdTimelineRow[] {
@@ -591,6 +619,10 @@ export function getNotificationFeed(
 ): NotificationFeedItem[] {
   const hiddenEventTypes = new Set([
     "WHATSAPP_ROUTE_INTERPRETED",
+    "WHATSAPP_INBOUND_RECEIVED",
+    "WHATSAPP_DELIVERY_STATUS",
+    "WHATSAPP_TEMPLATE_FALLBACK_SENT",
+    "WHATSAPP_TEMPLATE_FALLBACK_FAILED",
     "CONVERSATION_MESSAGE_SENT",
     "HANDOFF_MESSAGE_SENT",
     "WHATSAPP_WELCOME_SENT",

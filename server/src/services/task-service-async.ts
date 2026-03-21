@@ -105,6 +105,24 @@ function addDaysToIsoDate(isoDate: string, days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function addIntervalToIsoDate(isoDate: string, interval: number, unit: FrequencyUnit) {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return isoDate;
+  }
+
+  const safeInterval = Math.max(1, Math.floor(interval || 1));
+  if (unit === "day") {
+    date.setUTCDate(date.getUTCDate() + safeInterval);
+  } else if (unit === "week") {
+    date.setUTCDate(date.getUTCDate() + safeInterval * 7);
+  } else {
+    date.setUTCMonth(date.getUTCMonth() + safeInterval);
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
 function dayDiffIso(leftIsoDate: string, rightIsoDate: string) {
   const left = new Date(`${leftIsoDate}T00:00:00Z`);
   const right = new Date(`${rightIsoDate}T00:00:00Z`);
@@ -475,6 +493,7 @@ export async function listChoresAsync(): Promise<Chore[]> {
 }
 
 export async function listAssignmentsAsync(): Promise<Assignment[]> {
+  await ensurePendingRollingAssignmentsAsync();
   const rows = await queryRows<Assignment>(
     `
       ${assignmentBaseQuery}
@@ -744,6 +763,19 @@ async function getAssignmentByIdWithClient(client: PoolClient, assignmentId: num
   return assignment ? withAccountabilityState(assignment) : null;
 }
 
+async function getHouseTimezoneWithClient(client: PoolClient) {
+  const result = await client.query<{ timezone: string | null }>(
+    `
+      SELECT timezone
+      FROM house_settings
+      WHERE id = 1
+      LIMIT 1
+    `
+  );
+
+  return result.rows[0]?.timezone || "Europe/Berlin";
+}
+
 async function listActiveRoommatesWithClient(client: PoolClient) {
   const result = await client.query<Roommate>(
     `
@@ -767,6 +799,218 @@ async function listActiveRoommatesWithClient(client: PoolClient) {
   );
 
   return result.rows;
+}
+
+async function listActiveRollingChoresWithClient(client: PoolClient) {
+  const result = await client.query<
+    Pick<
+      Chore,
+      | "id"
+      | "title"
+      | "frequencyInterval"
+      | "frequencyUnit"
+      | "advanceRotationOn"
+      | "defaultAssigneeId"
+      | "defaultDueHour"
+    >
+  >(
+    `
+      SELECT
+        id,
+        title,
+        frequency_interval AS "frequencyInterval",
+        frequency_unit AS "frequencyUnit",
+        advance_rotation_on AS "advanceRotationOn",
+        default_assignee_id AS "defaultAssigneeId",
+        default_due_hour AS "defaultDueHour"
+      FROM chores
+      WHERE is_active = 1
+        AND task_mode = 'rolling_until_done'
+      ORDER BY id ASC
+      FOR UPDATE
+    `
+  );
+
+  return result.rows;
+}
+
+async function ensurePendingRollingAssignmentsWithClient(client: PoolClient) {
+  const timezone = await getHouseTimezoneWithClient(client);
+  const rollingChores = await listActiveRollingChoresWithClient(client);
+  const activeRoommates = await listActiveRoommatesWithClient(client);
+
+  if (rollingChores.length === 0 || activeRoommates.length === 0) {
+    return;
+  }
+
+  const todayIso = isoDateInTimezone(new Date(), timezone);
+  const activeRoommateIds = new Set(activeRoommates.map((roommate) => roommate.id));
+
+  for (const chore of rollingChores) {
+    const pendingResult = await client.query<{
+      id: number;
+      roommateId: number;
+      dueDate: string;
+    }>(
+      `
+        SELECT
+          id,
+          roommate_id AS "roommateId",
+          due_date AS "dueDate"
+        FROM assignments
+        WHERE chore_id = $1
+          AND status = 'pending'
+        ORDER BY due_date ASC, id ASC
+        LIMIT 1
+      `,
+      [chore.id]
+    );
+    const pendingAssignment = pendingResult.rows[0];
+
+    if (pendingAssignment) {
+      if (pendingAssignment.dueDate < todayIso) {
+        await client.query(
+          `
+            UPDATE assignments
+            SET
+              due_date = $2,
+              window_start_date = NULL,
+              window_end_date = NULL,
+              reminder_sent_at = NULL,
+              escalation_level = 0,
+              penalty_applied_at = NULL,
+              status_note = CASE
+                WHEN status_note IS NULL OR status_note = '' THEN 'rolling task moved to next day'
+                WHEN status_note LIKE '%rolling task moved to next day%' THEN status_note
+                ELSE status_note || ' | rolling task moved to next day'
+              END
+            WHERE id = $1
+          `,
+          [pendingAssignment.id, todayIso]
+        );
+
+        await addEventLogWithClient(client, {
+          roommateId: pendingAssignment.roommateId,
+          assignmentId: pendingAssignment.id,
+          eventType: "ROLLING_DUE_ROLLED_FORWARD",
+          payload: JSON.stringify({
+            choreId: chore.id,
+            previousDueDate: pendingAssignment.dueDate,
+            dueDate: todayIso
+          })
+        });
+      }
+
+      if (chore.defaultAssigneeId !== pendingAssignment.roommateId) {
+        await setChoreDefaultAssigneeWithClient(client, chore.id, pendingAssignment.roommateId);
+      }
+      continue;
+    }
+
+    const latestResult = await client.query<{
+      id: number;
+      roommateId: number;
+      responsibleRoommateId: number | null;
+      status: Assignment["status"];
+      resolutionType: Assignment["resolutionType"];
+      dueDate: string;
+    }>(
+      `
+        SELECT
+          id,
+          roommate_id AS "roommateId",
+          responsible_roommate_id AS "responsibleRoommateId",
+          status,
+          resolution_type AS "resolutionType",
+          due_date AS "dueDate"
+        FROM assignments
+        WHERE chore_id = $1
+        ORDER BY due_date DESC, id DESC
+        LIMIT 1
+      `,
+      [chore.id]
+    );
+    const latest = latestResult.rows[0];
+
+    const ownerId = latest?.responsibleRoommateId ?? latest?.roommateId ?? null;
+    const ownerIsActive = ownerId !== null && activeRoommateIds.has(ownerId);
+    const fallbackOwnerId = ownerIsActive ? ownerId : activeRoommates[0]?.id ?? null;
+    if (fallbackOwnerId === null) {
+      continue;
+    }
+
+    const keepOwner =
+      latest?.status === "skipped" ||
+      (latest?.resolutionType === "rescued" && chore.advanceRotationOn === "rescue_keeps_owner");
+
+    let nextAssigneeId: number;
+    if (!latest) {
+      const defaultAssigneeId = chore.defaultAssigneeId;
+      const defaultIsActive =
+        defaultAssigneeId !== null && activeRoommateIds.has(defaultAssigneeId);
+      nextAssigneeId = defaultIsActive && defaultAssigneeId !== null
+        ? defaultAssigneeId
+        : activeRoommates[0]!.id;
+    } else if (keepOwner) {
+      nextAssigneeId = fallbackOwnerId;
+    } else {
+      const nextRoommate = await getNextRoommateInRotationWithClient(client, fallbackOwnerId);
+      nextAssigneeId = nextRoommate?.id ?? activeRoommates[0]!.id;
+    }
+
+    const interval = Math.max(1, Number(chore.frequencyInterval || 1));
+    const nextFromLast = latest
+      ? addIntervalToIsoDate(latest.dueDate, interval, normalizeFrequencyUnit(chore.frequencyUnit))
+      : todayIso;
+    const dueDate = latest ? (nextFromLast < todayIso ? todayIso : nextFromLast) : todayIso;
+
+    const created = await client.query<{ id: number }>(
+      `
+        INSERT INTO assignments (
+          chore_id,
+          roommate_id,
+          due_date,
+          window_start_date,
+          window_end_date,
+          status,
+          status_note,
+          resolution_type,
+          responsible_roommate_id,
+          rescued_by_roommate_id,
+          escalation_level,
+          strike_applied,
+          rescue_credit_applied,
+          created_at
+        )
+        VALUES ($1, $2, $3, NULL, NULL, 'pending', 'rolling auto-scheduled', NULL, $2, NULL, 0, 0, 0, CURRENT_TIMESTAMP)
+        RETURNING id
+      `,
+      [chore.id, nextAssigneeId, dueDate]
+    );
+
+    if (chore.defaultAssigneeId !== nextAssigneeId) {
+      await setChoreDefaultAssigneeWithClient(client, chore.id, nextAssigneeId);
+    }
+
+    await addEventLogWithClient(client, {
+      roommateId: nextAssigneeId,
+      assignmentId: created.rows[0]?.id ?? null,
+      eventType: "ROLLING_ASSIGNMENT_CREATED",
+      payload: JSON.stringify({
+        choreId: chore.id,
+        choreTitle: chore.title,
+        dueDate,
+        sourceAssignmentId: latest?.id ?? null
+      })
+    });
+  }
+}
+
+async function ensurePendingRollingAssignmentsAsync() {
+  await withTransaction(async (client) => {
+    await ensurePendingRollingAssignmentsWithClient(client);
+    return null;
+  });
 }
 
 async function getChoreByIdWithClient(client: PoolClient, id: number) {
@@ -1620,6 +1864,7 @@ export async function getAssignmentByIdAsync(assignmentId: number) {
 }
 
 export async function listPendingAssignmentsForRoommateAsync(roommateId: number) {
+  await ensurePendingRollingAssignmentsAsync();
   const rows = await queryRows<Assignment>(
     `
       ${assignmentBaseQuery}
@@ -1634,6 +1879,7 @@ export async function listPendingAssignmentsForRoommateAsync(roommateId: number)
 }
 
 export async function listAllPendingAssignmentsAsync() {
+  await ensurePendingRollingAssignmentsAsync();
   const rows = await queryRows<Assignment>(
     `
       ${assignmentBaseQuery}
@@ -1646,6 +1892,7 @@ export async function listAllPendingAssignmentsAsync() {
 }
 
 export async function getOldestPendingAssignmentAsync(roommateId: number) {
+  await ensurePendingRollingAssignmentsAsync();
   const row = await queryRow<Assignment>(
     `
       ${assignmentBaseQuery}
@@ -1690,6 +1937,41 @@ export async function hasRoommateReceivedWhatsappWelcomeAsync(roommateId: number
   );
 
   return Boolean(row);
+}
+
+export async function getLastInboundWhatsappMessageAtAsync(whatsappNumber: string) {
+  const pattern = `%"from":"${whatsappNumber}"%`;
+  const row = await queryRow<{ createdAt: string }>(
+    `
+      SELECT created_at AS "createdAt"
+      FROM event_log
+      WHERE event_type = 'WHATSAPP_INBOUND_RECEIVED'
+        AND payload_json LIKE $1
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    [pattern]
+  );
+
+  return row?.createdAt ?? null;
+}
+
+export async function hasOpenWhatsappConversationWindowAsync(
+  whatsappNumber: string,
+  windowHours: number
+) {
+  const latestInboundAt = await getLastInboundWhatsappMessageAtAsync(whatsappNumber);
+  if (!latestInboundAt) {
+    return false;
+  }
+
+  const lastInboundMs = new Date(latestInboundAt).getTime();
+  if (Number.isNaN(lastInboundMs)) {
+    return false;
+  }
+
+  const windowMs = Math.max(1, windowHours) * 60 * 60 * 1000;
+  return Date.now() - lastInboundMs <= windowMs;
 }
 
 export async function getLatestConversationPromptForWhatsappAsync(
@@ -2455,6 +2737,40 @@ export async function hasConversationPromptBeenSentAsync(
   return Boolean(row);
 }
 
+async function hasReminderFailureBeenLoggedTodayAsync(input: {
+  assignmentId: number;
+  promptType: string;
+  now: Date;
+  timezone: string;
+}) {
+  const row = await queryRow<{ createdAt: string }>(
+    `
+      SELECT created_at AS "createdAt"
+      FROM event_log
+      WHERE assignment_id = $1
+        AND event_type = 'REMINDER_FAILED'
+        AND payload_json LIKE $2
+      ORDER BY id DESC
+      LIMIT 1
+    `,
+    [input.assignmentId, `%"promptType":"${input.promptType}"%`]
+  );
+
+  if (!row) {
+    return false;
+  }
+
+  const createdAt = new Date(row.createdAt);
+  if (Number.isNaN(createdAt.getTime())) {
+    return false;
+  }
+
+  return (
+    isoDateInTimezone(createdAt, input.timezone) ===
+    isoDateInTimezone(input.now, input.timezone)
+  );
+}
+
 export async function hasRoommateConversationPromptBeenSentTodayAsync(input: {
   roommateId: number;
   promptType: string;
@@ -2623,6 +2939,17 @@ export async function getAssignmentsDueForTwoDayReminderAsync(now: Date) {
       continue;
     }
 
+    if (
+      await hasReminderFailureBeenLoggedTodayAsync({
+        assignmentId: assignment.id,
+        promptType: "two_day_reminder",
+        now,
+        timezone
+      })
+    ) {
+      continue;
+    }
+
     const diff = dayDifferenceInTimezone(now, assignment.dueDate, timezone);
     if (
       diff === 2 &&
@@ -2660,6 +2987,17 @@ export async function getAssignmentsDueForDayOfReminderAsync(now: Date) {
     }
 
     if (await hasConversationPromptBeenSentAsync(assignment.id, "day_of_reminder")) {
+      continue;
+    }
+
+    if (
+      await hasReminderFailureBeenLoggedTodayAsync({
+        assignmentId: assignment.id,
+        promptType: "day_of_reminder",
+        now,
+        timezone
+      })
+    ) {
       continue;
     }
 
@@ -2904,6 +3242,35 @@ export async function createExpenseAsync(input: {
   }
 
   const shares = distributeExpenseShares(input.amountCents, input.includedRoommateIds);
+  const parsedLineItems = (() => {
+    if (!input.note) {
+      return [] as Array<{ title: string; amountCents: number }>;
+    }
+
+    try {
+      const parsed = JSON.parse(input.note) as {
+        kind?: string;
+        lineItems?: Array<{ title?: unknown; amountCents?: unknown }>;
+      };
+      if (parsed.kind !== "expense_itemized_v1" || !Array.isArray(parsed.lineItems)) {
+        return [] as Array<{ title: string; amountCents: number }>;
+      }
+
+      return parsed.lineItems
+        .map((lineItem) => ({
+          title: typeof lineItem?.title === "string" ? lineItem.title.trim() : "",
+          amountCents: Number(lineItem?.amountCents)
+        }))
+        .filter(
+          (lineItem) =>
+            lineItem.title.length > 0 &&
+            Number.isFinite(lineItem.amountCents) &&
+            lineItem.amountCents > 0
+        );
+    } catch {
+      return [] as Array<{ title: string; amountCents: number }>;
+    }
+  })();
 
   return await withTransaction(async (client) => {
     const activeRoommates = await client.query<{ id: number; name: string }>(
@@ -2953,6 +3320,7 @@ export async function createExpenseAsync(input: {
       payload: JSON.stringify({
         title,
         amountCents: input.amountCents,
+        lineItems: parsedLineItems,
         excludedRoommateIds: activeRoommates.rows
           .map((roommate) => roommate.id)
           .filter((roommateId) => !input.includedRoommateIds.includes(roommateId))
