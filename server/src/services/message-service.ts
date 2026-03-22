@@ -117,6 +117,14 @@ const TASK_ALIASES: Record<string, string[]> = {
   Toilet: ["toilet", "restroom"]
 };
 type ActionableIntentAction = "DONE" | "SKIP" | "SKIP_REASSIGN" | "RESCHEDULE" | "RESCUE";
+type ExpenseLineItem = {
+  title: string;
+  amountCents: number;
+};
+type ExpenseNoteMetadata = {
+  kind: "expense_itemized_v1";
+  lineItems: ExpenseLineItem[];
+};
 
 function normalizeBody(body: string) {
   return body.trim().replace(/\s+/g, " ");
@@ -213,6 +221,153 @@ function formatShortDueDate(value: string) {
 
 function formatEuroCents(amountCents: number) {
   return (amountCents / 100).toFixed(2);
+}
+
+function normalizeExpenseLineItems(
+  lineItems: AiWhatsappRoute["expenseLineItems"] | null | undefined
+): ExpenseLineItem[] {
+  if (!Array.isArray(lineItems)) {
+    return [];
+  }
+
+  return lineItems
+    .map((lineItem) => {
+      const title = String(lineItem?.title ?? "").trim();
+      const amountCents = Number(lineItem?.amountCents);
+      return {
+        title,
+        amountCents
+      };
+    })
+    .filter(
+      (lineItem) =>
+        lineItem.title.length > 0 &&
+        Number.isFinite(lineItem.amountCents) &&
+        lineItem.amountCents > 0
+    );
+}
+
+function isLikelyGenericExpenseTitle(value: string) {
+  const normalized = normalizeMatchText(value);
+  return (
+    normalized === "expense" ||
+    normalized === "expenses" ||
+    normalized === "purchase" ||
+    normalized === "purchases" ||
+    normalized === "household supplies" ||
+    normalized === "supplies" ||
+    normalized === "groceries" ||
+    normalized === "shopping" ||
+    normalized === "household items" ||
+    normalized === "items"
+  );
+}
+
+function resolveExpenseTitle(
+  routeExpenseTitle: string | null,
+  lineItems: ExpenseLineItem[]
+) {
+  const trimmedTitle = routeExpenseTitle?.trim() ?? "";
+  if (trimmedTitle && !isLikelyGenericExpenseTitle(trimmedTitle)) {
+    return trimmedTitle;
+  }
+
+  if (lineItems.length === 1) {
+    return lineItems[0]?.title ?? "Household supplies";
+  }
+
+  return trimmedTitle || "Household supplies";
+}
+
+function buildExpenseItemizedNote(lineItems: ExpenseLineItem[]) {
+  const payload: ExpenseNoteMetadata = {
+    kind: "expense_itemized_v1",
+    lineItems
+  };
+  return JSON.stringify(payload);
+}
+
+function parseExpenseItemizedNote(note: string | null | undefined): ExpenseLineItem[] {
+  if (!note) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(note) as Partial<ExpenseNoteMetadata>;
+    if (
+      parsed?.kind !== "expense_itemized_v1" ||
+      !Array.isArray(parsed.lineItems)
+    ) {
+      return [];
+    }
+    return normalizeExpenseLineItems(parsed.lineItems);
+  } catch {
+    return [];
+  }
+}
+
+function summarizeExpenseLineItems(lineItems: ExpenseLineItem[], maxItems = 3) {
+  if (lineItems.length === 0) {
+    return "";
+  }
+
+  const preview = lineItems
+    .slice(0, maxItems)
+    .map((lineItem) => `${lineItem.title} ${formatEuroCents(lineItem.amountCents)} EUR`)
+    .join(", ");
+
+  if (lineItems.length > maxItems) {
+    return `${preview}, +${lineItems.length - maxItems} more`;
+  }
+
+  return preview;
+}
+
+function extractExpenseLineItemsFromText(body: string): ExpenseLineItem[] {
+  const segments = body
+    .split(/\n|,|;|•|\u2022/)
+    .map((segment) =>
+      segment
+        .replace(/^[\s•*\-]+/, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
+    .filter(Boolean);
+
+  const results: ExpenseLineItem[] = [];
+  for (const segment of segments) {
+    const match = segment.match(
+      /^(.*?)(?:\s*[:=]\s*|\s+)(\d+(?:[.,]\d{1,2})?)\s*(?:€|eur|euro|euros)?$/i
+    );
+    if (!match) {
+      continue;
+    }
+
+    const rawTitle = (match[1] ?? "")
+      .replace(/^(i bought|bought|purchased|i got)\s+/i, "")
+      .trim();
+    const normalizedTitle = normalizeMatchText(rawTitle);
+    if (
+      !rawTitle ||
+      normalizedTitle === "include everyone" ||
+      normalizedTitle.startsWith("include ") ||
+      normalizedTitle.startsWith("exclude ")
+    ) {
+      continue;
+    }
+
+    const amount = Number(String(match[2]).replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      continue;
+    }
+
+    results.push({
+      title: rawTitle,
+      amountCents: Math.round(amount * 100)
+    });
+  }
+
+  return normalizeExpenseLineItems(results);
 }
 
 function toUtcDay(value: string | Date) {
@@ -350,6 +505,30 @@ function buildHelpMessage() {
 
 function normalizeMatchText(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function isSimpleReconnectAck(value: string) {
+  const normalized = normalizeMatchText(value);
+  if (!normalized) {
+    return false;
+  }
+
+  const quickAcks = new Set([
+    "y",
+    "yes",
+    "ok",
+    "okay",
+    "ready",
+    "start",
+    "hi",
+    "hello",
+    "hey",
+    "yo",
+    "sure",
+    "sounds good"
+  ]);
+
+  return quickAcks.has(normalized);
 }
 
 function isMissedOverviewQuestion(lowered: string) {
@@ -764,6 +943,9 @@ export async function notifyHouseExpenseAddedAsync(
     expense.excludedRoommateNames.length > 0
       ? ` Excluded: ${expense.excludedRoommateNames.join(", ")}.`
       : "";
+  const lineItems = parseExpenseItemizedNote(expense.note);
+  const itemizedLabel =
+    lineItems.length > 0 ? ` Items: ${summarizeExpenseLineItems(lineItems)}.` : "";
 
   for (const roommate of targets) {
     const share = expense.shares.find((entry) => entry.roommateId === roommate.id);
@@ -772,7 +954,7 @@ export async function notifyHouseExpenseAddedAsync(
       : "You are excluded from this split.";
     const message =
       `🧾 ${expense.paidByRoommateName} added ${expense.title} for ${formatEuroCents(expense.amountCents)} EUR. ` +
-      `${shareText}${excludedLabel}`;
+      `${shareText}${itemizedLabel}${excludedLabel}`;
     try {
       await sendWhatsappMessage(roommate.whatsappNumber, message);
     } catch (error) {
@@ -1029,7 +1211,8 @@ async function buildHouseholdQuestionSnapshotAsync() {
       title: expense.title,
       amountCents: expense.amountCents,
       paidByRoommateName: expense.paidByRoommateName,
-      createdAt: expense.createdAt
+      createdAt: expense.createdAt,
+      lineItems: parseExpenseItemizedNote(expense.note)
     })),
     recentEvents: recentEvents.map((event) => ({
       eventType: event.eventType,
@@ -2224,6 +2407,19 @@ export async function processInboundMessage(params: {
   const latestPrompt = await getLatestConversationPromptForWhatsappAsync(params.from, {
     preferOriginalRecipient: Boolean(actorRoommate)
   });
+
+  if (
+    actorRoommate &&
+    !trustedProxy &&
+    isSimpleReconnectAck(normalized) &&
+    !latestPrompt?.promptType
+  ) {
+    const tasksMessage = await buildTasksMessageAsync(params.from, "week");
+    return {
+      message: `Perfect, you're connected 🙂\n\n${tasksMessage}`
+    };
+  }
+
   const pendingAssignments = await getPendingAssignmentsForInterpretationAsync(
     actor.roommateId,
     trustedProxy,
@@ -2348,7 +2544,17 @@ export async function processInboundMessage(params: {
   }
 
   if (route.kind === "EXPENSE") {
-    if (!actorRoommate || !route.expenseTitle || !route.amountCents) {
+    const aiLineItems = normalizeExpenseLineItems(route.expenseLineItems);
+    const fallbackLineItems =
+      aiLineItems.length > 0 ? aiLineItems : extractExpenseLineItemsFromText(params.body);
+    const itemizedTotalCents = fallbackLineItems.reduce(
+      (sum, lineItem) => sum + lineItem.amountCents,
+      0
+    );
+    const finalAmountCents = itemizedTotalCents > 0 ? itemizedTotalCents : route.amountCents;
+    const finalExpenseTitle = resolveExpenseTitle(route.expenseTitle, fallbackLineItems);
+
+    if (!actorRoommate || !finalExpenseTitle || !finalAmountCents) {
       return { message: "I need the item and amount to log that expense." };
     }
 
@@ -2367,10 +2573,15 @@ export async function processInboundMessage(params: {
       .filter((roommateId) => !excludedIds.has(roommateId));
 
     const expense = await createExpenseAsync({
-      title: route.expenseTitle,
-      amountCents: route.amountCents,
+      title: finalExpenseTitle,
+      amountCents: finalAmountCents,
       paidByRoommateId: actorRoommate.id,
-      note: excludedIds.size > 0 ? `Excluded ${excludedIds.size} roommate(s)` : null,
+      note:
+        fallbackLineItems.length > 0
+          ? buildExpenseItemizedNote(fallbackLineItems)
+          : excludedIds.size > 0
+            ? `Excluded ${excludedIds.size} roommate(s)`
+            : null,
       includedRoommateIds
     });
 
@@ -2382,11 +2593,15 @@ export async function processInboundMessage(params: {
 
     const splitCount = expense.shares.length;
     const perPerson = expense.shares[0]?.shareCents ?? 0;
+    const lineItemSummary =
+      fallbackLineItems.length > 0
+        ? ` Items: ${summarizeExpenseLineItems(fallbackLineItems, 5)}.`
+        : "";
     return {
       message:
         expense.excludedRoommateNames.length > 0
-          ? `😍 Logged ${expense.title} for ${(expense.amountCents / 100).toFixed(2)} EUR. Split between ${splitCount} people, ${(perPerson / 100).toFixed(2)} EUR each, excluding ${expense.excludedRoommateNames.join(", ")} ♥️`
-          : `😍 Logged ${expense.title} for ${(expense.amountCents / 100).toFixed(2)} EUR. Split between ${splitCount} people, ${(perPerson / 100).toFixed(2)} EUR each ♥️`
+          ? `😍 Logged ${expense.title} for ${(expense.amountCents / 100).toFixed(2)} EUR.${lineItemSummary} Split between ${splitCount} people, ${(perPerson / 100).toFixed(2)} EUR each, excluding ${expense.excludedRoommateNames.join(", ")} ♥️`
+          : `😍 Logged ${expense.title} for ${(expense.amountCents / 100).toFixed(2)} EUR.${lineItemSummary} Split between ${splitCount} people, ${(perPerson / 100).toFixed(2)} EUR each ♥️`
     };
   }
 
